@@ -185,7 +185,6 @@ METRICS: dict[str, callable] = {
     "Average time per run":                  show_average_time,
     "Total time spent on runs":              show_total_time,
     "Total time (truncated per outcome)":    show_total_time_truncated,
-    "% of times a condition was met & lost": lambda runs: st.info("Not yet implemented"),
 }
 
 
