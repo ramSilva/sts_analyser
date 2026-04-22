@@ -370,6 +370,44 @@ def get_boss_encounter_stats(runs: list[dict]) -> list[dict]:
 
     return sorted(result, key=lambda x: x["count"], reverse=True)
 
+def _render_encounter_table(enc_stats: list[dict]) -> None:
+    """Render an encounter table where clicking any row navigates to its detail page."""
+    st.markdown("""
+    <style>
+    div[data-testid="stHorizontalBlock"] button[kind="secondary"] {
+        background: none !important;
+        border: none !important;
+        padding: 0 !important;
+        color: #7eb8f7 !important;
+        font-size: 14px !important;
+        text-align: left !important;
+        cursor: pointer !important;
+        text-decoration: underline dotted !important;
+    }
+    div[data-testid="stHorizontalBlock"] button[kind="secondary"]:hover {
+        color: #a8d4ff !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    cols = st.columns([3, 1, 1.2, 1.2, 1.2, 1])
+    for col, label in zip(cols, ["Encounter", "Times", "Avg Dmg", "Avg Turns", "Win Rate", "Act"]):
+        col.markdown(f"**{label}**")
+    st.divider()
+
+    for row in enc_stats:
+        cols = st.columns([3, 1, 1.2, 1.2, 1.2, 1])
+        if cols[0].button(row["name"], key=f"enc_{row['enc_id']}", use_container_width=True):
+            st.query_params["enc_detail"] = row["enc_id"]
+            st.query_params["enc_type"]   = row["enc_type"]
+            st.rerun()
+        cols[1].write(row["count"])
+        cols[2].write(round(row["avg_dmg"], 1))
+        cols[3].write(round(row["avg_turns"], 1))
+        cols[4].write(f"{row['win_rate']:.1%}")
+        cols[5].write(row["acts"])
+
+
 def show_elite_analysis(runs: list[dict]) -> None:
     """Win rate by elite count bracket + elite density per outcome."""
     wins_list = [r for r in runs if is_win(r)]
@@ -434,29 +472,7 @@ def show_elite_analysis(runs: list[dict]) -> None:
         st.info("No elite encounter data found.")
         return
 
-    import pandas as _pd
-    _df = _pd.DataFrame([{
-        "Encounter": row["name"],
-        "Times":     row["count"],
-        "Avg Dmg":   round(row["avg_dmg"], 1),
-        "Avg Turns": round(row["avg_turns"], 1),
-        "Win Rate":  f"{row['win_rate']:.1%}",
-        "Act":       row["acts"],
-    } for row in enc_stats])
-
-    _event = st.dataframe(
-        _df,
-        use_container_width=True,
-        hide_index=True,
-        on_select="rerun",
-        selection_mode="single-row",
-    )
-
-    if _event.selection.rows:
-        _row = enc_stats[_event.selection.rows[0]]
-        st.query_params["enc_detail"] = _row["enc_id"]
-        st.query_params["enc_type"]   = _row["enc_type"]
-        st.rerun()
+    _render_encounter_table(enc_stats)
 
 def show_boss_analysis(runs: list[dict]) -> None:
     """Boss encounter breakdown."""
@@ -470,29 +486,7 @@ def show_boss_analysis(runs: list[dict]) -> None:
         st.info("No boss encounter data found.")
         return
 
-    import pandas as _pd
-    _df = _pd.DataFrame([{
-        "Encounter": row["name"],
-        "Times":     row["count"],
-        "Avg Dmg":   round(row["avg_dmg"], 1),
-        "Avg Turns": round(row["avg_turns"], 1),
-        "Win Rate":  f"{row['win_rate']:.1%}",
-        "Act":       row["acts"],
-    } for row in enc_stats])
-
-    _event = st.dataframe(
-        _df,
-        use_container_width=True,
-        hide_index=True,
-        on_select="rerun",
-        selection_mode="single-row",
-    )
-
-    if _event.selection.rows:
-        _row = enc_stats[_event.selection.rows[0]]
-        st.query_params["enc_detail"] = _row["enc_id"]
-        st.query_params["enc_type"]   = _row["enc_type"]
-        st.rerun()
+    _render_encounter_table(enc_stats)
 
 def get_chosen_relic_ids(run: dict) -> set[str]:
     """Relic IDs the player was offered as an explicit choice during the run."""
