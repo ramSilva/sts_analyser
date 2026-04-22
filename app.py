@@ -16,11 +16,20 @@ import streamlit as st
 
 
 # ---------------------------------------------------------------------------
+# Persistent file store (survives page refreshes for the lifetime of the server)
+# ---------------------------------------------------------------------------
+
+@st.cache_resource
+def get_file_store() -> dict[str, bytes]:
+    """Returns a single shared dict that persists across sessions and refreshes."""
+    return {}
+
+
+# ---------------------------------------------------------------------------
 # .run file loading
 # ---------------------------------------------------------------------------
 
 def parse_run(name: str, raw: bytes) -> dict | None:
-    """Parse a single .run file from raw bytes. Returns None on error."""
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
@@ -29,18 +38,16 @@ def parse_run(name: str, raw: bytes) -> dict | None:
 
 
 def sync_uploads(uploaded_files) -> None:
-    """Merge newly uploaded files into session state, skipping duplicates by name."""
-    stored: dict[str, bytes] = st.session_state.setdefault("run_files", {})
+    """Merge newly uploaded files into the store, skipping duplicates by name."""
+    store = get_file_store()
     for f in uploaded_files:
-        if f.name not in stored:
-            stored[f.name] = f.read()
+        if f.name not in store:
+            store[f.name] = f.read()
 
 
-def load_runs_from_state() -> list[dict]:
-    """Parse all stored .run files from session state."""
-    stored: dict[str, bytes] = st.session_state.get("run_files", {})
+def load_runs_from_store() -> list[dict]:
     runs = []
-    for name, raw in stored.items():
+    for name, raw in get_file_store().items():
         data = parse_run(name, raw)
         if data is not None:
             runs.append(data)
@@ -184,7 +191,6 @@ def main() -> None:
     st.set_page_config(page_title="STS Run Analyser", page_icon="🗡️", layout="centered")
     st.title("🗡️ STS Run Analyser")
 
-    # ── Sidebar: file upload + session management ────────────────────────
     with st.sidebar:
         st.header("1. Upload your .run files")
         uploaded = st.file_uploader(
@@ -196,23 +202,22 @@ def main() -> None:
         if uploaded:
             sync_uploads(uploaded)
 
-        stored = st.session_state.get("run_files", {})
-        if stored:
-            st.success(f"{len(stored)} file(s) loaded")
+        store = get_file_store()
+        if store:
+            st.success(f"{len(store)} file(s) loaded")
             with st.expander("Loaded files"):
-                for name in stored:
+                for name in store:
                     st.text(f"• {name}")
             if st.button("🗑️ Clear all files", use_container_width=True):
-                st.session_state["run_files"] = {}
+                store.clear()
                 st.rerun()
 
-    runs = load_runs_from_state()
+    runs = load_runs_from_store()
 
     if not runs:
         st.info("👈 Upload your .run files using the sidebar to get started.")
         return
 
-    # ── Main area ────────────────────────────────────────────────────────
     st.divider()
     st.header("2. Choose a metric")
     metric_label = st.selectbox("What would you like to calculate?", list(METRICS.keys()))
