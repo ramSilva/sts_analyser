@@ -237,10 +237,11 @@ def show_elite_analysis(runs: list[dict]) -> None:
     # ── Win rate by bracket ──────────────────────────────────────────
     st.subheader("Win rate by number of elites fought")
 
-    brackets: dict[str, list[dict]] = {"0": [], "1": [], "2": [], "3": [], "4+": []}
+    brackets: dict[str, list[dict]] = {str(i): [] for i in range(11)}
+    brackets["10+"] = []
     for r in runs:
         n = count_elites(r)
-        key = str(n) if n <= 3 else "4+"
+        key = str(n) if n <= 10 else "10+"
         brackets[key].append(r)
 
     for label, bracket_runs in brackets.items():
