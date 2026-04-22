@@ -280,8 +280,39 @@ def show_elite_analysis(runs: list[dict]) -> None:
     st.altair_chart(chart, use_container_width=True)
 
 
+def relic_id_to_slug(relic_id: str) -> str:
+    return relic_id.replace("RELIC.", "").replace("_", "-").lower()
+
+
+def relic_id_to_img_name(relic_id: str) -> str:
+    return relic_id.replace("RELIC.", "").lower()
+
+
+@st.cache_data(ttl=86400)
+def fetch_relic_info(relic_id: str) -> dict:
+    """Fetch relic effect text from spirewiki.com. Image URL is derived directly."""
+    import re
+    import urllib.request
+
+    slug = relic_id_to_slug(relic_id)
+    img_name = relic_id_to_img_name(relic_id)
+    image_url = f"https://spirewiki.com/images/relics/{img_name}.png"
+    page_url = f"https://spirewiki.com/relics/{slug}"
+
+    try:
+        req = urllib.request.Request(page_url, headers={"User-Agent": "STS2Analyser/1.0"})
+        html = urllib.request.urlopen(req, timeout=5).read().decode()
+        match = re.search(r'Effect\s*</[^>]+>\s*<[^>]+>\s*([^<]+)', html)
+        effect = match.group(1).strip() if match else "No description available."
+    except Exception:
+        effect = "Could not load description."
+
+    return {"image": image_url, "effect": effect}
+
+
 def show_relic_analysis(runs: list[dict]) -> None:
-    """Win rate for each relic picked, across all runs."""
+    """Win rate per relic with wiki image/description on hover."""
+    import json as _json
     from collections import defaultdict
 
     relic_runs: dict[str, list[bool]] = defaultdict(list)
@@ -294,24 +325,93 @@ def show_relic_analysis(runs: list[dict]) -> None:
         st.warning("No relic data found in the uploaded runs.")
         return
 
-    rows = []
-    for relic_id, outcomes in relic_runs.items():
-        total = len(outcomes)
-        wins = sum(outcomes)
-        rows.append({
-            "Relic": relic_id.replace("RELIC.", "").replace("_", " ").title(),
-            "Runs": total,
-            "Wins": wins,
-            "Losses": total - wins,
-            "Win rate": f"{wins / total:.1%}",
-            "_sort": wins / total,
-        })
+    with st.spinner("Fetching relic info from wiki..."):
+        rows = []
+        for relic_id, outcomes in relic_runs.items():
+            total = len(outcomes)
+            wins = sum(outcomes)
+            info = fetch_relic_info(relic_id)
+            rows.append({
+                "name": relic_id.replace("RELIC.", "").replace("_", " ").title(),
+                "total": total,
+                "wins": wins,
+                "losses": total - wins,
+                "rate": wins / total,
+                "rate_str": f"{wins / total:.1%}",
+                "image": info["image"],
+                "effect": info["effect"],
+            })
 
-    rows.sort(key=lambda x: x["_sort"], reverse=True)
+    rows.sort(key=lambda x: x["rate"], reverse=True)
+
+    rows_html = ""
     for row in rows:
-        del row["_sort"]
+        tip = _json.dumps({"name": row["name"], "image": row["image"], "effect": row["effect"]})
+        tip = tip.replace("'", "&#39;")
+        rows_html += f"""
+        <tr class="relic-row" data-relic='{tip}'>
+            <td>{row["name"]}</td>
+            <td>{row["total"]}</td>
+            <td>{row["wins"]}</td>
+            <td>{row["losses"]}</td>
+            <td>{row["rate_str"]}</td>
+        </tr>"""
 
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    height = max(500, 80 + len(rows) * 42)
+
+    html = f"""
+    <style>
+        body {{ margin: 0; font-family: sans-serif; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        th {{ padding: 10px 12px; text-align: left; background: #f0f2f6; font-size: 13px; border-bottom: 2px solid #ddd; }}
+        td {{ padding: 9px 12px; border-bottom: 1px solid #e8e8e8; font-size: 13px; }}
+        .relic-row:hover {{ background: #eef2ff; cursor: default; }}
+        #tip {{
+            display: none;
+            position: fixed;
+            background: #1e2130;
+            color: #e0e0e0;
+            border-radius: 10px;
+            padding: 14px;
+            z-index: 9999;
+            width: 240px;
+            box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+            pointer-events: none;
+        }}
+        #tip img {{ width: 72px; height: 72px; object-fit: contain; display: block; margin: 0 auto 10px; }}
+        #tip .tip-name {{ font-weight: bold; font-size: 14px; color: #fff; text-align: center; margin-bottom: 6px; }}
+        #tip .tip-effect {{ font-size: 12px; line-height: 1.6; color: #b0b8c8; }}
+    </style>
+    <div id="tip">
+        <img id="tip-img" src="">
+        <div class="tip-name" id="tip-name"></div>
+        <div class="tip-effect" id="tip-effect"></div>
+    </div>
+    <table>
+        <thead><tr><th>Relic</th><th>Runs</th><th>Wins</th><th>Losses</th><th>Win Rate</th></tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table>
+    <script>
+        const tip = document.getElementById('tip');
+        document.querySelectorAll('.relic-row').forEach(row => {{
+            row.addEventListener('mouseenter', () => {{
+                const d = JSON.parse(row.dataset.relic);
+                document.getElementById('tip-img').src = d.image;
+                document.getElementById('tip-name').textContent = d.name;
+                document.getElementById('tip-effect').textContent = d.effect;
+                tip.style.display = 'block';
+            }});
+            row.addEventListener('mousemove', e => {{
+                const x = e.clientX + 16, y = e.clientY + 16;
+                tip.style.left = x + 'px';
+                tip.style.top  = y + 'px';
+            }});
+            row.addEventListener('mouseleave', () => {{ tip.style.display = 'none'; }});
+        }});
+    </script>
+    """
+
+    st.components.v1.html(html, height=height, scrolling=True)
 
 
 # ---------------------------------------------------------------------------
