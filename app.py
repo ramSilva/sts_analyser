@@ -72,6 +72,10 @@ def finished_act1(run: dict) -> bool:
     return len(run.get("map_point_history", [])) >= 2
 
 
+def finished_act2(run: dict) -> bool:
+    return len(run.get("map_point_history", [])) >= 3
+
+
 def format_duration(seconds: float) -> str:
     seconds = int(seconds)
     h, rem = divmod(seconds, 3600)
@@ -121,6 +125,30 @@ def show_win_rate_after_act1(runs: list[dict]) -> None:
     col3.metric("Losses", losses)
     st.progress(rate / 100)
     st.markdown(f"### Win rate after Act 1: **{rate:.1f}%**")
+
+
+def show_win_rate_after_act2(runs: list[dict]) -> None:
+    qualifying = [r for r in runs if finished_act2(r)]
+    skipped = len(runs) - len(qualifying)
+    total = len(qualifying)
+
+    if total == 0:
+        st.warning("None of the uploaded runs made it past Act 2.")
+        return
+
+    wins = sum(1 for r in qualifying if is_win(r))
+    losses = total - wins
+    rate = (wins / total * 100) if total > 0 else 0.0
+
+    if skipped > 0:
+        st.caption(f"ℹ️ {skipped} run(s) excluded — did not finish Act 2.")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Runs past Act 2", total)
+    col2.metric("Wins", wins)
+    col3.metric("Losses", losses)
+    st.progress(rate / 100)
+    st.markdown(f"### Win rate after Act 2: **{rate:.1f}%**")
 
 
 def show_average_time(runs: list[dict]) -> None:
@@ -182,6 +210,7 @@ def show_total_time_truncated(runs: list[dict]) -> None:
 METRICS: dict[str, callable] = {
     "Win rate":                              show_win_rate,
     "Win rate after finishing Act 1":        show_win_rate_after_act1,
+    "Win rate after finishing Act 2":        show_win_rate_after_act2,
     "Average time per run":                  show_average_time,
     "Total time spent on runs":              show_total_time,
     "Total time (truncated per outcome)":    show_total_time_truncated,
