@@ -11,6 +11,7 @@ Deploy free:
 """
 
 import json
+import re
 
 import altair as alt
 
