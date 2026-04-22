@@ -314,6 +314,7 @@ def get_elite_encounter_stats(runs: list[dict]) -> list[dict]:
             "win_rate":  s["wins"] / total_runs if total_runs else 0,
             "total_runs": total_runs,
             "acts":       ", ".join(str(a) for a in sorted(s["acts"])),
+            "enc_type":   "elite",
         })
 
     return sorted(result, key=lambda x: x["count"], reverse=True)
@@ -443,7 +444,7 @@ def show_elite_analysis(runs: list[dict]) -> None:
                 f'''<tr class="rr" data-tip="{tip_b64}"'''
                 f''' data-name="{row["name"]}" data-count="{row["count"]}"'''
                 f''' data-avg_dmg="{row["avg_dmg"]:.1f}" data-avg_turns="{row["avg_turns"]:.1f}"'''
-                f''' data-win_rate="{row["win_rate"]}" data-acts="{row["acts"]}">'''
+                f''' data-win_rate="{row["win_rate"]}" data-acts="{row["acts"]}" data-enc-id="{row["enc_id"]}" data-enc-type="{row["enc_type"]}">'''
                 f'''<td>{row["name"]}</td>'''
                 f'''<td>{row["count"]}</td>'''
                 f'''<td>{row["avg_dmg"]:.1f}</td>'''
@@ -466,7 +467,7 @@ def show_elite_analysis(runs: list[dict]) -> None:
     th .arrow {{ margin-left:5px; opacity:0.5; }}
     th.sorted .arrow {{ opacity:1; }}
     td {{ padding:9px 14px; border-bottom:1px solid #1e1e2e; }}
-    .rr:hover {{ background:#1e2130; cursor:default; }}
+    .rr:hover {{ background:#1e2130; cursor:pointer; }}
     #tip {{ display:none; position:fixed; background:#1e2130; color:#e0e0e0;
             border:1px solid #3d3d5c; border-radius:10px; padding:14px; z-index:9999;
             width:200px; box-shadow:0 6px 24px rgba(0,0,0,0.6); pointer-events:none; }}
@@ -534,6 +535,12 @@ def show_elite_analysis(runs: list[dict]) -> None:
                 tip.style.top  = (e.clientY + 16) + 'px';
             }});
             row.addEventListener('mouseleave', () => {{ tip.style.display = 'none'; }});
+            row.addEventListener('click', () => {{
+                const url = new URL(window.parent.location.href);
+                url.searchParams.set('enc_detail', row.dataset.encId);
+                url.searchParams.set('enc_type', row.dataset.encType);
+                window.parent.location.href = url.toString();
+            }});
         }});
     </script>
     </body></html>"""
@@ -893,7 +900,7 @@ def show_boss_analysis(runs: list[dict]) -> None:
                 f'''<tr class="rr" data-tip="{tip_b64}"'''
                 f''' data-name="{row["name"]}" data-count="{row["count"]}"'''
                 f''' data-avg_dmg="{row["avg_dmg"]:.1f}" data-avg_turns="{row["avg_turns"]:.1f}"'''
-                f''' data-win_rate="{row["win_rate"]}" data-acts="{row["acts"]}">'''
+                f''' data-win_rate="{row["win_rate"]}" data-acts="{row["acts"]}" data-enc-id="{row["enc_id"]}" data-enc-type="{row["enc_type"]}">'''
                 f'''<td>{row["name"]}</td>'''
                 f'''<td>{row["count"]}</td>'''
                 f'''<td>{row["avg_dmg"]:.1f}</td>'''
@@ -916,7 +923,7 @@ def show_boss_analysis(runs: list[dict]) -> None:
     th .arrow {{ margin-left:5px; opacity:0.5; }}
     th.sorted .arrow {{ opacity:1; }}
     td {{ padding:9px 14px; border-bottom:1px solid #1e1e2e; }}
-    .rr:hover {{ background:#1e2130; cursor:default; }}
+    .rr:hover {{ background:#1e2130; cursor:pointer; }}
     #tip {{ display:none; position:fixed; background:#1e2130; color:#e0e0e0;
             border:1px solid #3d3d5c; border-radius:10px; padding:14px; z-index:9999;
             width:200px; box-shadow:0 6px 24px rgba(0,0,0,0.6); pointer-events:none; }}
@@ -984,6 +991,12 @@ def show_boss_analysis(runs: list[dict]) -> None:
                 tip.style.top  = (e.clientY + 16) + 'px';
             }});
             row.addEventListener('mouseleave', () => {{ tip.style.display = 'none'; }});
+            row.addEventListener('click', () => {{
+                const url = new URL(window.parent.location.href);
+                url.searchParams.set('enc_detail', row.dataset.encId);
+                url.searchParams.set('enc_type', row.dataset.encType);
+                window.parent.location.href = url.toString();
+            }});
         }});
     </script>
     </body></html>"""
@@ -1069,6 +1082,19 @@ def fetch_relic_info(relic_id: str) -> dict:
 
 
 
+def show_encounter_detail(enc_id: str, enc_type: str, runs: list[dict]) -> None:
+    """Detailed breakdown for a single elite/boss encounter. Placeholder for now."""
+    name = encounter_id_to_name(enc_id)
+    if st.button("← Back"):
+        del st.query_params["enc_detail"]
+        del st.query_params["enc_type"]
+        st.rerun()
+
+    kind = enc_type.capitalize()
+    st.header(f"{kind}: {name}")
+    st.info("Detailed breakdown coming soon.")
+
+
 def show_general(runs: list[dict]) -> None:
     """Combined overview: all win rate and time metrics on one page."""
     show_win_rate(runs)
@@ -1134,6 +1160,13 @@ def main() -> None:
 
     if not runs:
         st.info("👈 Upload your .run files using the sidebar to get started.")
+        return
+
+    # ── Encounter detail page ────────────────────────────────────────
+    enc_detail = st.query_params.get("enc_detail")
+    enc_type   = st.query_params.get("enc_type", "elite")
+    if enc_detail:
+        show_encounter_detail(enc_detail, enc_type, runs)
         return
 
     st.divider()
