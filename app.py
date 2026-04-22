@@ -67,6 +67,18 @@ def load_runs(username: str) -> list[dict]:
 # Helpers
 # ---------------------------------------------------------------------------
 
+def get_character(run: dict) -> str:
+    """Extract the character class from a run, trying known STS2 field names."""
+    player = run.get("players", [{}])[0]
+    return (
+        player.get("char_type")
+        or player.get("character")
+        or run.get("character_id")
+        or run.get("char_type")
+        or "Unknown"
+    )
+
+
 def is_win(run: dict) -> bool:
     return run.get("win", False)
 
@@ -1088,6 +1100,12 @@ def main() -> None:
     if enc_detail:
         show_encounter_detail(enc_detail, enc_type, runs)
         return
+
+    characters = sorted({get_character(r) for r in runs})
+    char_options = ["All"] + characters
+    selected_char = st.selectbox("🧙 Character", char_options, index=0)
+    if selected_char != "All":
+        runs = [r for r in runs if get_character(r) == selected_char]
 
     st.divider()
     st.header("2. Choose a metric")
