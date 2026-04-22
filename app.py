@@ -31,17 +31,26 @@ def load_run_files(uploaded_files) -> list[dict]:
     return runs
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 def is_win(run: dict) -> bool:
-    """A run is a win when the player was not killed by any encounter or event."""
-    return (
-        run.get("killed_by_encounter", "") == "NONE.NONE"
-        and run.get("killed_by_event", "") == "NONE.NONE"
-    )
+    return run.get("win", False)
 
 
 def finished_act1(run: dict) -> bool:
-    """A run finished Act 1 if map_point_history contains more than one act."""
     return len(run.get("map_point_history", [])) >= 2
+
+
+def format_duration(seconds: float) -> str:
+    """Format a duration in seconds to a human-readable string."""
+    seconds = int(seconds)
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    if h > 0:
+        return f"{h}h {m:02d}m {s:02d}s"
+    return f"{m}m {s:02d}s"
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +58,6 @@ def finished_act1(run: dict) -> bool:
 # ---------------------------------------------------------------------------
 
 def show_win_rate(runs: list[dict]) -> None:
-    """Calculate the overall win rate across all uploaded runs."""
     total = len(runs)
     wins = sum(1 for r in runs if is_win(r))
     losses = total - wins
@@ -64,7 +72,6 @@ def show_win_rate(runs: list[dict]) -> None:
 
 
 def show_win_rate_after_act1(runs: list[dict]) -> None:
-    """Calculate the win rate for runs that completed Act 1."""
     qualifying = [r for r in runs if finished_act1(r)]
     skipped = len(runs) - len(qualifying)
     total = len(qualifying)
@@ -88,12 +95,58 @@ def show_win_rate_after_act1(runs: list[dict]) -> None:
     st.markdown(f"### Win rate after Act 1: **{rate:.1f}%**")
 
 
-def show_condition_failure_rate(runs: list[dict]) -> None:
-    """Calculate the % of times a specific condition was met but the run was lost."""
-    condition = st.text_input("Condition name / key to check")
-    if condition:
-        # TODO: implement based on your .run schema
-        st.info(f"Not yet implemented: Failure rate for condition '{condition}'")
+def show_average_time(runs: list[dict]) -> None:
+    times = [r["run_time"] for r in runs if "run_time" in r]
+    if not times:
+        st.warning("No run_time data found in the uploaded files.")
+        return
+
+    avg = sum(times) / len(times)
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Runs with time data", len(times))
+    col2.metric("Shortest", format_duration(min(times)))
+    col3.metric("Longest", format_duration(max(times)))
+    st.markdown(f"### Average time per run: **{format_duration(avg)}**")
+
+
+def show_total_time(runs: list[dict]) -> None:
+    times = [r["run_time"] for r in runs if "run_time" in r]
+    if not times:
+        st.warning("No run_time data found in the uploaded files.")
+        return
+
+    total = sum(times)
+    col1, col2 = st.columns(2)
+    col1.metric("Runs with time data", len(times))
+    col2.metric("Total time", format_duration(total))
+    st.markdown(f"### Total time spent: **{format_duration(total)}**")
+
+
+def show_total_time_truncated(runs: list[dict]) -> None:
+    st.markdown("**Truncation thresholds**")
+    col1, col2 = st.columns(2)
+    win_cap_mins = col1.number_input("Max time for wins (minutes)", min_value=1, value=60)
+    loss_cap_mins = col2.number_input("Max time for losses (minutes)", min_value=1, value=15)
+
+    win_cap = win_cap_mins * 60
+    loss_cap = loss_cap_mins * 60
+
+    times = []
+    for r in runs:
+        if "run_time" not in r:
+            continue
+        cap = win_cap if is_win(r) else loss_cap
+        times.append(min(r["run_time"], cap))
+
+    if not times:
+        st.warning("No run_time data found in the uploaded files.")
+        return
+
+    total = sum(times)
+    col1, col2 = st.columns(2)
+    col1.metric("Runs with time data", len(times))
+    col2.metric("Total time (truncated)", format_duration(total))
+    st.markdown(f"### Total time (truncated): **{format_duration(total)}**")
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +156,10 @@ def show_condition_failure_rate(runs: list[dict]) -> None:
 METRICS: dict[str, callable] = {
     "Win rate":                              show_win_rate,
     "Win rate after finishing Act 1":        show_win_rate_after_act1,
-    "% of times a condition was met & lost": show_condition_failure_rate,
+    "Average time per run":                  show_average_time,
+    "Total time spent on runs":              show_total_time,
+    "Total time (truncated per outcome)":    show_total_time_truncated,
+    "% of times a condition was met & lost": lambda runs: st.info("Not yet implemented"),
 }
 
 
@@ -115,7 +171,6 @@ def main() -> None:
     st.set_page_config(page_title="STS Run Analyser", page_icon="🗡️", layout="centered")
     st.title("🗡️ STS Run Analyser")
 
-    # ── Sidebar: file upload ─────────────────────────────────────────────
     with st.sidebar:
         st.header("1. Upload your .run files")
         uploaded = st.file_uploader(
@@ -135,15 +190,12 @@ def main() -> None:
 
     st.success(f"✅ Loaded **{len(runs)}** run(s) successfully.")
 
-    # ── Main area: metric selection ──────────────────────────────────────
     st.divider()
     st.header("2. Choose a metric")
-
     metric_label = st.selectbox("What would you like to calculate?", list(METRICS.keys()))
 
     st.divider()
     st.header("3. Results")
-
     METRICS[metric_label](runs)
 
 
