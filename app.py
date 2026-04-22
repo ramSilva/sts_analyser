@@ -501,7 +501,7 @@ def show_elite_analysis(runs: list[dict]) -> None:
             <th data-key="win_rate">Win Rate <span class="arrow">&#x21D5;</span></th>
             <th data-key="acts">Act <span class="arrow">&#x21D5;</span></th>
         </tr></thead>
-        <tbody>{{rows_html}}</tbody>
+        <tbody>{rows_html}</tbody>
     </table>
     <script>
         const tip = document.getElementById('tip');
