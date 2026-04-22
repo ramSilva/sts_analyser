@@ -226,6 +226,91 @@ def show_total_time_truncated(runs: list[dict]) -> None:
     st.markdown(f"### Total time (truncated): **{format_duration(sum(times))}**")
 
 
+
+_ENCOUNTER_SUFFIX = re.compile(r"_(ELITE|WEAK|STRONG|EASY|HARD|MEDIUM)$", re.IGNORECASE)
+
+
+def encounter_id_to_name(enc_id: str) -> str:
+    name = enc_id.replace("ENCOUNTER.", "")
+    name = _ENCOUNTER_SUFFIX.sub("", name)
+    return name.replace("_", " ").title()
+
+
+def encounter_id_to_slug(enc_id: str) -> str:
+    name = enc_id.replace("ENCOUNTER.", "")
+    name = _ENCOUNTER_SUFFIX.sub("", name)
+    return name.replace("_", "-").lower()
+
+
+def encounter_id_to_img(enc_id: str) -> str:
+    name = enc_id.replace("ENCOUNTER.", "")
+    name = _ENCOUNTER_SUFFIX.sub("", name)
+    return name.lower()
+
+
+@st.cache_data(ttl=86400)
+def fetch_encounter_info(enc_id: str) -> dict:
+    """Fetch monster image and name from spirewiki.com/monsters/."""
+    import urllib.request as _ur
+    slug = encounter_id_to_slug(enc_id)
+    img_name = encounter_id_to_img(enc_id)
+    image_url = f"https://spirewiki.com/images/monsters/{img_name}.png"
+    page_url = f"https://spirewiki.com/monsters/{slug}"
+    try:
+        req = _ur.Request(page_url, headers={"User-Agent": "STS2Analyser/1.0"})
+        _ur.urlopen(req, timeout=5)          # just confirm the page exists
+    except Exception:
+        image_url = ""                       # page not found — no image
+    return {"image": image_url}
+
+
+def get_elite_encounter_stats(runs: list[dict]) -> list[dict]:
+    """Aggregate per-encounter stats across all runs."""
+    from collections import defaultdict
+    stats: dict = defaultdict(lambda: {"count": 0, "dmg": [], "turns": [], "wins": 0, "losses": 0})
+
+    for run in runs:
+        won = is_win(run)
+        counted_for_win: set[str] = set()
+        for act in run.get("map_point_history", []):
+            for point in act:
+                if point.get("map_point_type") != "elite":
+                    continue
+                rooms = point.get("rooms", [])
+                if not rooms:
+                    continue
+                enc_id = rooms[0].get("model_id", "")
+                if not enc_id:
+                    continue
+                turns = rooms[0].get("turns_taken", 0)
+                ps_list = point.get("player_stats", [])
+                dmg = ps_list[0].get("damage_taken", 0) if ps_list else 0
+                s = stats[enc_id]
+                s["count"] += 1
+                s["dmg"].append(dmg)
+                s["turns"].append(turns)
+                if enc_id not in counted_for_win:
+                    counted_for_win.add(enc_id)
+                    if won:
+                        s["wins"] += 1
+                    else:
+                        s["losses"] += 1
+
+    result = []
+    for enc_id, s in stats.items():
+        total_runs = s["wins"] + s["losses"]
+        result.append({
+            "enc_id":    enc_id,
+            "name":      encounter_id_to_name(enc_id),
+            "count":     s["count"],
+            "avg_dmg":   sum(s["dmg"]) / len(s["dmg"]) if s["dmg"] else 0,
+            "avg_turns": sum(s["turns"]) / len(s["turns"]) if s["turns"] else 0,
+            "win_rate":  s["wins"] / total_runs if total_runs else 0,
+            "total_runs": total_runs,
+        })
+
+    return sorted(result, key=lambda x: x["count"], reverse=True)
+
 def show_elite_analysis(runs: list[dict]) -> None:
     """Win rate by elite count bracket + elite density per outcome."""
     wins_list = [r for r in runs if is_win(r)]
@@ -355,6 +440,122 @@ def fetch_relic_info(relic_id: str) -> dict:
         effect = "Could not load description."
 
     return {"image": image_url, "effect": effect}
+
+
+    # ── Per-encounter table ──────────────────────────────────────────────
+    st.divider()
+    st.subheader("Elite encounter breakdown")
+
+    enc_stats = get_elite_encounter_stats(runs)
+    if not enc_stats:
+        st.info("No elite encounter data found.")
+        return
+
+    with st.spinner("Fetching encounter info from wiki..."):
+        import base64 as _b64, json as _json
+        rows_html = ""
+        for row in enc_stats:
+            info = fetch_encounter_info(row["enc_id"])
+            tip_data = {"name": row["name"], "image": info["image"]}
+            tip_b64 = _b64.b64encode(_json.dumps(tip_data).encode()).decode()
+            rows_html += (
+                f'''<tr class="rr" data-tip="{tip_b64}"'''
+                f''' data-name="{row["name"]}" data-count="{row["count"]}"'''
+                f''' data-avg_dmg="{row["avg_dmg"]:.1f}" data-avg_turns="{row["avg_turns"]:.1f}"'''
+                f''' data-win_rate="{row["win_rate"]}">'''
+                f'''<td>{row["name"]}</td>'''
+                f'''<td>{row["count"]}</td>'''
+                f'''<td>{row["avg_dmg"]:.1f}</td>'''
+                f'''<td>{row["avg_turns"]:.1f}</td>'''
+                f'''<td>{row["win_rate"]:.1%}</td></tr>'''
+            )
+
+    height = max(400, 80 + len(enc_stats) * 42)
+    html = f"""<!DOCTYPE html><html><head><style>
+    * {{ box-sizing:border-box; margin:0; padding:0; }}
+    body {{ background:#0e1117; color:#fafafa; font-family:"Source Sans Pro",sans-serif; font-size:14px; }}
+    table {{ width:100%; border-collapse:collapse; }}
+    thead tr {{ background:#262730; }}
+    th {{ padding:10px 14px; text-align:left; font-weight:600; color:#a0a0b0; font-size:12px;
+          text-transform:uppercase; letter-spacing:0.5px; border-bottom:1px solid #3d3d4d;
+          cursor:pointer; user-select:none; white-space:nowrap; }}
+    th:hover {{ color:#fff; }}
+    th.sorted {{ color:#7eb8f7; }}
+    th .arrow {{ margin-left:5px; opacity:0.5; }}
+    th.sorted .arrow {{ opacity:1; }}
+    td {{ padding:9px 14px; border-bottom:1px solid #1e1e2e; }}
+    .rr:hover {{ background:#1e2130; cursor:default; }}
+    #tip {{ display:none; position:fixed; background:#1e2130; color:#e0e0e0;
+            border:1px solid #3d3d5c; border-radius:10px; padding:14px; z-index:9999;
+            width:200px; box-shadow:0 6px 24px rgba(0,0,0,0.6); pointer-events:none; }}
+    #tip img {{ width:96px; height:96px; object-fit:contain; display:block; margin:0 auto 10px; }}
+    #tip .tip-name {{ font-weight:700; font-size:14px; color:#fff; text-align:center; }}
+    </style></head><body>
+    <div id="tip">
+        <img id="tip-img" src="" onerror="this.style.display='none'">
+        <div class="tip-name" id="tip-name"></div>
+    </div>
+    <table id="tbl">
+        <thead><tr>
+            <th data-key="name">Encounter <span class="arrow">↕</span></th>
+            <th data-key="count">Times Encountered <span class="arrow">↕</span></th>
+            <th data-key="avg_dmg">Avg Dmg Taken <span class="arrow">↕</span></th>
+            <th data-key="avg_turns">Avg Turns <span class="arrow">↕</span></th>
+            <th data-key="win_rate">Win Rate <span class="arrow">↕</span></th>
+        </tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table>
+    <script>
+        const tip = document.getElementById('tip');
+        let sortKey = 'count', sortAsc = false;
+
+        function updateHeaderUI() {{
+            document.querySelectorAll('th[data-key]').forEach(h => {{
+                h.classList.remove('sorted');
+                h.querySelector('.arrow').textContent = '↕';
+            }});
+            const a = document.querySelector(`th[data-key="${{sortKey}}"]`);
+            if (a) {{ a.classList.add('sorted'); a.querySelector('.arrow').textContent = sortAsc ? '↑' : '↓'; }}
+        }}
+
+        function sortTable() {{
+            const tbody = document.querySelector('#tbl tbody');
+            Array.from(tbody.querySelectorAll('tr')).sort((a, b) => {{
+                const av = a.dataset[sortKey], bv = b.dataset[sortKey];
+                const an = parseFloat(av), bn = parseFloat(bv);
+                const cmp = isNaN(an) ? av.localeCompare(bv) : an - bn;
+                return sortAsc ? cmp : -cmp;
+            }}).forEach(r => tbody.appendChild(r));
+            updateHeaderUI();
+        }}
+
+        sortTable();
+
+        document.querySelectorAll('th[data-key]').forEach(th => {{
+            th.addEventListener('click', () => {{
+                sortAsc = th.dataset.key === sortKey ? !sortAsc : false;
+                sortKey = th.dataset.key;
+                sortTable();
+            }});
+        }});
+
+        document.querySelectorAll('.rr').forEach(row => {{
+            row.addEventListener('mouseenter', () => {{
+                const d = JSON.parse(atob(row.dataset.tip));
+                document.getElementById('tip-img').src = d.image;
+                document.getElementById('tip-img').style.display = d.image ? 'block' : 'none';
+                document.getElementById('tip-name').textContent = d.name;
+                tip.style.display = 'block';
+            }});
+            row.addEventListener('mousemove', e => {{
+                tip.style.left = (e.clientX + 16) + 'px';
+                tip.style.top  = (e.clientY + 16) + 'px';
+            }});
+            row.addEventListener('mouseleave', () => {{ tip.style.display = 'none'; }});
+        }});
+    </script>
+    </body></html>"""
+    st.components.v1.html(html, height=height, scrolling=True)
 
 
 def show_relic_analysis(runs: list[dict]) -> None:
