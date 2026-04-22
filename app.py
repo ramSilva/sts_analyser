@@ -366,82 +366,6 @@ def show_elite_analysis(runs: list[dict]) -> None:
     st.altair_chart(chart, use_container_width=True)
 
 
-def get_chosen_relic_ids(run: dict) -> set[str]:
-    """Relic IDs the player was offered as an explicit choice during the run."""
-    chosen = set()
-    for act in run.get("map_point_history", []):
-        for point in act:
-            ps_list = point.get("player_stats", [])
-            ps = ps_list[0] if ps_list else {}
-            for rc in ps.get("relic_choices", []):
-                if "choice" in rc:
-                    chosen.add(rc["choice"])
-    return chosen
-
-
-def get_relic_offer_stats(runs: list[dict]) -> dict[str, dict]:
-    """For each relic, count how many times it was offered and how many times picked.
-
-    Each entry in relic_choices is one offered relic:
-      {"choice": "RELIC.X", "was_picked": true/false}
-    """
-    from collections import defaultdict
-    offered: dict[str, int] = defaultdict(int)
-    picked: dict[str, int] = defaultdict(int)
-    for run in runs:
-        for act in run.get("map_point_history", []):
-            for point in act:
-                ps_list = point.get("player_stats", [])
-                ps = ps_list[0] if ps_list else {}
-                for rc in ps.get("relic_choices", []):
-                    relic_id = rc.get("choice")
-                    if not relic_id:
-                        continue
-                    offered[relic_id] += 1
-                    if rc.get("was_picked"):
-                        picked[relic_id] += 1
-    return {
-        relic: {"offered": offered[relic], "picked": picked.get(relic, 0)}
-        for relic in offered
-    }
-
-
-def get_starting_relic_ids(run: dict) -> set[str]:
-    """Relics the player had that were never offered as a choice — true starting relics."""
-    chosen = get_chosen_relic_ids(run)
-    all_relics = {r["id"] for r in run.get("players", [{}])[0].get("relics", []) if "id" in r}
-    return all_relics - chosen
-
-
-def relic_id_to_slug(relic_id: str) -> str:
-    return relic_id.replace("RELIC.", "").replace("_", "-").lower()
-
-
-def relic_id_to_img_name(relic_id: str) -> str:
-    return relic_id.replace("RELIC.", "").lower()
-
-
-@st.cache_data(ttl=86400)
-def fetch_relic_info(relic_id: str) -> dict:
-    """Fetch relic effect text from spirewiki.com. Image URL is derived directly."""
-    import re
-    import urllib.request
-
-    slug = relic_id_to_slug(relic_id)
-    img_name = relic_id_to_img_name(relic_id)
-    image_url = f"https://spirewiki.com/images/relics/{img_name}.png"
-    page_url = f"https://spirewiki.com/relics/{slug}"
-
-    try:
-        req = urllib.request.Request(page_url, headers={"User-Agent": "STS2Analyser/1.0"})
-        html = urllib.request.urlopen(req, timeout=5).read().decode()
-        match = re.search(r'Effect\s*</[^>]+>\s*<[^>]+>\s*([^<]+)', html)
-        effect = match.group(1).strip() if match else "No description available."
-    except Exception:
-        effect = "Could not load description."
-
-    return {"image": image_url, "effect": effect}
-
 
     # ── Per-encounter table ──────────────────────────────────────────────
     st.divider()
@@ -557,6 +481,83 @@ def fetch_relic_info(relic_id: str) -> dict:
     </script>
     </body></html>"""
     st.components.v1.html(html, height=height, scrolling=True)
+
+
+def get_chosen_relic_ids(run: dict) -> set[str]:
+    """Relic IDs the player was offered as an explicit choice during the run."""
+    chosen = set()
+    for act in run.get("map_point_history", []):
+        for point in act:
+            ps_list = point.get("player_stats", [])
+            ps = ps_list[0] if ps_list else {}
+            for rc in ps.get("relic_choices", []):
+                if "choice" in rc:
+                    chosen.add(rc["choice"])
+    return chosen
+
+
+def get_relic_offer_stats(runs: list[dict]) -> dict[str, dict]:
+    """For each relic, count how many times it was offered and how many times picked.
+
+    Each entry in relic_choices is one offered relic:
+      {"choice": "RELIC.X", "was_picked": true/false}
+    """
+    from collections import defaultdict
+    offered: dict[str, int] = defaultdict(int)
+    picked: dict[str, int] = defaultdict(int)
+    for run in runs:
+        for act in run.get("map_point_history", []):
+            for point in act:
+                ps_list = point.get("player_stats", [])
+                ps = ps_list[0] if ps_list else {}
+                for rc in ps.get("relic_choices", []):
+                    relic_id = rc.get("choice")
+                    if not relic_id:
+                        continue
+                    offered[relic_id] += 1
+                    if rc.get("was_picked"):
+                        picked[relic_id] += 1
+    return {
+        relic: {"offered": offered[relic], "picked": picked.get(relic, 0)}
+        for relic in offered
+    }
+
+
+def get_starting_relic_ids(run: dict) -> set[str]:
+    """Relics the player had that were never offered as a choice — true starting relics."""
+    chosen = get_chosen_relic_ids(run)
+    all_relics = {r["id"] for r in run.get("players", [{}])[0].get("relics", []) if "id" in r}
+    return all_relics - chosen
+
+
+def relic_id_to_slug(relic_id: str) -> str:
+    return relic_id.replace("RELIC.", "").replace("_", "-").lower()
+
+
+def relic_id_to_img_name(relic_id: str) -> str:
+    return relic_id.replace("RELIC.", "").lower()
+
+
+@st.cache_data(ttl=86400)
+def fetch_relic_info(relic_id: str) -> dict:
+    """Fetch relic effect text from spirewiki.com. Image URL is derived directly."""
+    import re
+    import urllib.request
+
+    slug = relic_id_to_slug(relic_id)
+    img_name = relic_id_to_img_name(relic_id)
+    image_url = f"https://spirewiki.com/images/relics/{img_name}.png"
+    page_url = f"https://spirewiki.com/relics/{slug}"
+
+    try:
+        req = urllib.request.Request(page_url, headers={"User-Agent": "STS2Analyser/1.0"})
+        html = urllib.request.urlopen(req, timeout=5).read().decode()
+        match = re.search(r'Effect\s*</[^>]+>\s*<[^>]+>\s*([^<]+)', html)
+        effect = match.group(1).strip() if match else "No description available."
+    except Exception:
+        effect = "Could not load description."
+
+    return {"image": image_url, "effect": effect}
 
 
 def show_relic_analysis(runs: list[dict]) -> None:
