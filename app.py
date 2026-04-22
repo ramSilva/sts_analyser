@@ -312,6 +312,7 @@ def fetch_relic_info(relic_id: str) -> dict:
 
 def show_relic_analysis(runs: list[dict]) -> None:
     """Win rate per relic with wiki image/description on hover."""
+    import base64
     import json as _json
     from collections import defaultdict
 
@@ -346,10 +347,10 @@ def show_relic_analysis(runs: list[dict]) -> None:
 
     rows_html = ""
     for row in rows:
-        tip = _json.dumps({"name": row["name"], "image": row["image"], "effect": row["effect"]})
-        tip = tip.replace("'", "&#39;")
-        rows_html += f"""
-        <tr class="relic-row" data-relic='{tip}'>
+        tip_b64 = base64.b64encode(
+            _json.dumps({"name": row["name"], "image": row["image"], "effect": row["effect"]}).encode()
+        ).decode()
+        rows_html += f"""<tr class="rr" data-tip="{tip_b64}">
             <td>{row["name"]}</td>
             <td>{row["total"]}</td>
             <td>{row["wins"]}</td>
@@ -359,60 +360,57 @@ def show_relic_analysis(runs: list[dict]) -> None:
 
     height = max(500, 80 + len(rows) * 42)
 
-    html = f"""
-    <style>
-        body {{ margin: 0; font-family: sans-serif; }}
-        table {{ width: 100%; border-collapse: collapse; }}
-        th {{ padding: 10px 12px; text-align: left; background: #f0f2f6; font-size: 13px; border-bottom: 2px solid #ddd; }}
-        td {{ padding: 9px 12px; border-bottom: 1px solid #e8e8e8; font-size: 13px; }}
-        .relic-row:hover {{ background: #eef2ff; cursor: default; }}
-        #tip {{
-            display: none;
-            position: fixed;
-            background: #1e2130;
-            color: #e0e0e0;
-            border-radius: 10px;
-            padding: 14px;
-            z-index: 9999;
-            width: 240px;
-            box-shadow: 0 6px 24px rgba(0,0,0,0.5);
-            pointer-events: none;
-        }}
-        #tip img {{ width: 72px; height: 72px; object-fit: contain; display: block; margin: 0 auto 10px; }}
-        #tip .tip-name {{ font-weight: bold; font-size: 14px; color: #fff; text-align: center; margin-bottom: 6px; }}
-        #tip .tip-effect {{ font-size: 12px; line-height: 1.6; color: #b0b8c8; }}
-    </style>
-    <div id="tip">
-        <img id="tip-img" src="">
-        <div class="tip-name" id="tip-name"></div>
-        <div class="tip-effect" id="tip-effect"></div>
-    </div>
-    <table>
-        <thead><tr><th>Relic</th><th>Runs</th><th>Wins</th><th>Losses</th><th>Win Rate</th></tr></thead>
-        <tbody>{rows_html}</tbody>
-    </table>
-    <script>
-        const tip = document.getElementById('tip');
-        document.querySelectorAll('.relic-row').forEach(row => {{
-            row.addEventListener('mouseenter', () => {{
-                const d = JSON.parse(row.dataset.relic);
-                document.getElementById('tip-img').src = d.image;
-                document.getElementById('tip-name').textContent = d.name;
-                document.getElementById('tip-effect').textContent = d.effect;
-                tip.style.display = 'block';
-            }});
-            row.addEventListener('mousemove', e => {{
-                const x = e.clientX + 16, y = e.clientY + 16;
-                tip.style.left = x + 'px';
-                tip.style.top  = y + 'px';
-            }});
-            row.addEventListener('mouseleave', () => {{ tip.style.display = 'none'; }});
+    html = f"""<!DOCTYPE html>
+<html>
+<head><style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ background: #0e1117; color: #fafafa; font-family: "Source Sans Pro", sans-serif; font-size: 14px; }}
+    table {{ width: 100%; border-collapse: collapse; }}
+    thead tr {{ background: #262730; }}
+    th {{ padding: 10px 14px; text-align: left; font-weight: 600; color: #a0a0b0; font-size: 12px;
+          text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #3d3d4d; }}
+    td {{ padding: 9px 14px; border-bottom: 1px solid #1e1e2e; }}
+    .rr:hover {{ background: #1e2130; cursor: default; }}
+    #tip {{
+        display: none; position: fixed; background: #1e2130; color: #e0e0e0;
+        border: 1px solid #3d3d5c; border-radius: 10px; padding: 14px;
+        z-index: 9999; width: 240px; box-shadow: 0 6px 24px rgba(0,0,0,0.6); pointer-events: none;
+    }}
+    #tip img {{ width: 72px; height: 72px; object-fit: contain; display: block; margin: 0 auto 10px; }}
+    #tip .tip-name {{ font-weight: 700; font-size: 14px; color: #fff; text-align: center; margin-bottom: 6px; }}
+    #tip .tip-effect {{ font-size: 12px; line-height: 1.6; color: #9ab; }}
+</style></head>
+<body>
+<div id="tip">
+    <img id="tip-img" src="" onerror="this.style.display='none'">
+    <div class="tip-name" id="tip-name"></div>
+    <div class="tip-effect" id="tip-effect"></div>
+</div>
+<table>
+    <thead><tr><th>Relic</th><th>Runs</th><th>Wins</th><th>Losses</th><th>Win Rate</th></tr></thead>
+    <tbody>{rows_html}</tbody>
+</table>
+<script>
+    const tip = document.getElementById('tip');
+    document.querySelectorAll('.rr').forEach(row => {{
+        row.addEventListener('mouseenter', () => {{
+            const d = JSON.parse(atob(row.dataset.tip));
+            document.getElementById('tip-img').src = d.image;
+            document.getElementById('tip-img').style.display = 'block';
+            document.getElementById('tip-name').textContent = d.name;
+            document.getElementById('tip-effect').textContent = d.effect;
+            tip.style.display = 'block';
         }});
-    </script>
-    """
+        row.addEventListener('mousemove', e => {{
+            tip.style.left = (e.clientX + 16) + 'px';
+            tip.style.top  = (e.clientY + 16) + 'px';
+        }});
+        row.addEventListener('mouseleave', () => {{ tip.style.display = 'none'; }});
+    }});
+</script>
+</body></html>"""
 
     st.components.v1.html(html, height=height, scrolling=True)
-
 
 # ---------------------------------------------------------------------------
 # Metric registry
