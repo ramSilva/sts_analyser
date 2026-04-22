@@ -12,6 +12,8 @@ Deploy free:
 
 import json
 
+import altair as alt
+
 import streamlit as st
 
 
@@ -237,20 +239,37 @@ def show_elite_analysis(runs: list[dict]) -> None:
     # ── Win rate by bracket ──────────────────────────────────────────
     st.subheader("Win rate by number of elites fought")
 
-    brackets: dict[str, list[dict]] = {str(i): [] for i in range(11)}
-    brackets["10+"] = []
-    for r in runs:
-        n = count_elites(r)
-        key = str(n) if n <= 10 else "10+"
-        brackets[key].append(r)
+    sort_order = [str(i) for i in range(11)] + ["10+"]
 
-    for label, bracket_runs in brackets.items():
+    data = []
+    for label in sort_order:
+        bracket_runs = [r for r in runs if (
+            (count_elites(r) == int(label)) if label != "10+" else (count_elites(r) > 10)
+        )]
         if not bracket_runs:
             continue
         wins = sum(1 for r in bracket_runs if is_win(r))
-        rate = wins / len(bracket_runs)
-        st.text(f"{label} elite(s) — {len(bracket_runs)} run(s)")
-        st.progress(rate, text=f"{rate:.1%} win rate")
+        losses = len(bracket_runs) - wins
+        data.append({"elites": label, "outcome": "Loss", "runs": losses})
+        data.append({"elites": label, "outcome": "Win", "runs": wins})
+
+    chart = (
+        alt.Chart(alt.Data(values=data))
+        .mark_bar()
+        .encode(
+            x=alt.X("elites:O", sort=sort_order, title="Elites fought"),
+            y=alt.Y("runs:Q", title="Total runs"),
+            color=alt.Color(
+                "outcome:N",
+                scale=alt.Scale(domain=["Loss", "Win"], range=["#a8c5da", "#1a5276"]),
+                legend=alt.Legend(title="Outcome"),
+            ),
+            order=alt.Order("outcome:N", sort="ascending"),
+            tooltip=["elites:O", "outcome:N", "runs:Q"],
+        )
+        .properties(width="container")
+    )
+    st.altair_chart(chart, use_container_width=True)
 
 
 # ---------------------------------------------------------------------------
