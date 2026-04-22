@@ -39,8 +39,13 @@ def is_win(run: dict) -> bool:
     )
 
 
+def finished_act1(run: dict) -> bool:
+    """A run finished Act 1 if map_point_history contains more than one act."""
+    return len(run.get("map_point_history", [])) >= 2
+
+
 # ---------------------------------------------------------------------------
-# Metrics — add your implementations here
+# Metrics
 # ---------------------------------------------------------------------------
 
 def show_win_rate(runs: list[dict]) -> None:
@@ -59,9 +64,28 @@ def show_win_rate(runs: list[dict]) -> None:
 
 
 def show_win_rate_after_act1(runs: list[dict]) -> None:
-    """Calculate the win rate for runs that completed at least Act 1."""
-    # TODO: implement based on your .run schema
-    st.info("Not yet implemented: Win rate after finishing Act 1")
+    """Calculate the win rate for runs that completed Act 1."""
+    qualifying = [r for r in runs if finished_act1(r)]
+    skipped = len(runs) - len(qualifying)
+    total = len(qualifying)
+
+    if total == 0:
+        st.warning("None of the uploaded runs made it past Act 1.")
+        return
+
+    wins = sum(1 for r in qualifying if is_win(r))
+    losses = total - wins
+    rate = (wins / total * 100) if total > 0 else 0.0
+
+    if skipped > 0:
+        st.caption(f"ℹ️ {skipped} run(s) excluded — did not finish Act 1.")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Runs past Act 1", total)
+    col2.metric("Wins", wins)
+    col3.metric("Losses", losses)
+    st.progress(rate / 100)
+    st.markdown(f"### Win rate after Act 1: **{rate:.1f}%**")
 
 
 def show_condition_failure_rate(runs: list[dict]) -> None:
