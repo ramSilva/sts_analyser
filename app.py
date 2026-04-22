@@ -397,6 +397,8 @@ def show_relic_analysis(runs: list[dict]) -> None:
                 "offered":       n_offered,
                 "pick_rate":     pick_rate if pick_rate is not None else -1,
                 "pick_rate_str": f"{pick_rate:.1%}" if pick_rate is not None else "—",
+                "n_offered":     n_offered,
+                "n_picked":      n_picked,
                 "image":         info["image"],
                 "effect":        info["effect"],
             })
@@ -412,11 +414,13 @@ def show_relic_analysis(runs: list[dict]) -> None:
             f'''<tr class="rr" data-tip="{tip_b64}"'''
             f''' data-name="{row["name"]}" data-total="{row["total"]}"'''
             f''' data-wins="{row["wins"]}" data-losses="{row["losses"]}"'''
-            f''' data-rate="{row["rate"]}" data-offered="{row["offered"]}"'''
-            f''' data-pick_rate="{row["pick_rate"]}">'''
+            f''' data-rate="{row["rate"]}" data-offered="{row["n_offered"]}"'''
+            f''' data-picked="{row["n_picked"]}" data-pick_rate="{row["pick_rate"]}">'''
             f'''<td>{row["name"]}</td><td>{row["total"]}</td>'''
             f'''<td>{row["wins"]}</td><td>{row["losses"]}</td>'''
             f'''<td>{row["rate_str"]}</td>'''
+            f'''<td>{row["n_offered"] or "—"}</td>'''
+            f'''<td>{row["n_picked"] if row["n_offered"] else "—"}</td>'''
             f'''<td>{row["pick_rate_str"]}</td></tr>'''
         )
 
@@ -487,6 +491,8 @@ def show_relic_analysis(runs: list[dict]) -> None:
         <th data-key="wins">Wins <span class="arrow">↕</span></th>
         <th data-key="losses">Losses <span class="arrow">↕</span></th>
         <th data-key="rate">Win Rate <span class="arrow">↕</span></th>
+        <th data-key="offered">Offered <span class="arrow">↕</span></th>
+        <th data-key="picked">Picked <span class="arrow">↕</span></th>
         <th data-key="pick_rate">Pick Rate <span class="arrow">↕</span></th>
     </tr></thead>
     <tbody>{rows_html}</tbody>
