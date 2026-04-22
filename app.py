@@ -365,6 +365,7 @@ def get_boss_encounter_stats(runs: list[dict]) -> list[dict]:
             "win_rate":   s["wins"] / total_runs if total_runs else 0,
             "total_runs": total_runs,
             "acts":       ", ".join(str(a) for a in sorted(s["acts"])),
+            "enc_type":   "boss",
         })
 
     return sorted(result, key=lambda x: x["count"], reverse=True)
