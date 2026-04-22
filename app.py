@@ -277,7 +277,7 @@ def get_elite_encounter_stats(runs: list[dict]) -> list[dict]:
     for run in runs:
         won = is_win(run)
         counted_for_win: set[str] = set()
-        for act in run.get("map_point_history", []):
+        for act_idx, act in enumerate(run.get("map_point_history", []), start=1):
             for point in act:
                 if point.get("map_point_type") != "elite":
                     continue
@@ -294,6 +294,7 @@ def get_elite_encounter_stats(runs: list[dict]) -> list[dict]:
                 s["count"] += 1
                 s["dmg"].append(dmg)
                 s["turns"].append(turns)
+                s["acts"].add(act_idx)
                 if enc_id not in counted_for_win:
                     counted_for_win.add(enc_id)
                     if won:
