@@ -330,23 +330,13 @@ def fetch_relic_info(relic_id: str) -> dict:
 
 
 def show_relic_analysis(runs: list[dict]) -> None:
-    """Win rate per relic with wiki image/description on hover, persistent sort and filter."""
+    """Win rate per relic with wiki image/description on hover and click-to-sort headers."""
     import base64
     import json as _json
     from collections import defaultdict
 
-    # ── Controls ─────────────────────────────────────────────────────────
-    col1, col2, col3 = st.columns([2, 2, 1])
-    ignore_starting = col1.toggle("Ignore starting relics", value=True)
-    sort_col = col2.selectbox(
-        "Sort by",
-        ["Win Rate", "Runs", "Wins", "Losses", "Relic"],
-        index=0,
-        key="relic_sort_col",
-    )
-    sort_asc = col3.toggle("Ascending", value=False, key="relic_sort_asc")
+    ignore_starting = st.toggle("Ignore starting relics", value=True)
 
-    # ── Aggregate ────────────────────────────────────────────────────────
     relic_runs: dict[str, list[bool]] = defaultdict(list)
     for r in runs:
         won = is_win(r)
@@ -376,17 +366,18 @@ def show_relic_analysis(runs: list[dict]) -> None:
                 "effect": info["effect"],
             })
 
-    sort_key_map = {"Win Rate": "rate", "Runs": "total", "Wins": "wins", "Losses": "losses", "Relic": "name"}
-    rows.sort(key=lambda x: x[sort_key_map[sort_col]], reverse=not sort_asc)
+    # Default sort: win rate descending
+    rows.sort(key=lambda x: x["rate"], reverse=True)
 
-    # ── Build HTML ───────────────────────────────────────────────────────
     rows_html = ""
     for row in rows:
         tip_b64 = base64.b64encode(
             _json.dumps({"name": row["name"], "image": row["image"], "effect": row["effect"]}).encode()
         ).decode()
         rows_html += (
-            f'''<tr class="rr" data-tip="{tip_b64}">'''
+            f'''<tr class="rr" data-tip="{tip_b64}"'''
+            f''' data-name="{row["name"]}" data-total="{row["total"]}"'''
+            f''' data-wins="{row["wins"]}" data-losses="{row["losses"]}" data-rate="{row["rate"]}">'''
             f'''<td>{row["name"]}</td><td>{row["total"]}</td>'''
             f'''<td>{row["wins"]}</td><td>{row["losses"]}</td>'''
             f'''<td>{row["rate_str"]}</td></tr>'''
@@ -402,10 +393,14 @@ def show_relic_analysis(runs: list[dict]) -> None:
     table {{ width: 100%; border-collapse: collapse; }}
     thead tr {{ background: #262730; }}
     th {{
-        padding: 10px 14px; text-align: left; font-weight: 600; color: #a0a0b0;
-        font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
-        border-bottom: 1px solid #3d3d4d;
+        padding: 10px 14px; text-align: left; font-weight: 600; color: #a0a0b0; font-size: 12px;
+        text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #3d3d4d;
+        cursor: pointer; user-select: none; white-space: nowrap;
     }}
+    th:hover {{ color: #ffffff; }}
+    th.sorted {{ color: #7eb8f7; }}
+    th .arrow {{ margin-left: 5px; opacity: 0.5; }}
+    th.sorted .arrow {{ opacity: 1; }}
     td {{ padding: 9px 14px; border-bottom: 1px solid #1e1e2e; }}
     .rr:hover {{ background: #1e2130; cursor: default; }}
     #tip {{
@@ -435,12 +430,17 @@ def show_relic_analysis(runs: list[dict]) -> None:
 </div>
 <table id="tbl">
     <thead><tr>
-        <th>Relic</th><th>Runs</th><th>Wins</th><th>Losses</th><th>Win Rate</th>
+        <th data-key="name">Relic <span class="arrow">↕</span></th>
+        <th data-key="total">Runs <span class="arrow">↕</span></th>
+        <th data-key="wins">Wins <span class="arrow">↕</span></th>
+        <th data-key="losses">Losses <span class="arrow">↕</span></th>
+        <th data-key="rate" class="sorted">Win Rate <span class="arrow">↓</span></th>
     </tr></thead>
     <tbody>{rows_html}</tbody>
 </table>
 <script>
     const tip = document.getElementById('tip');
+    let sortKey = 'rate', sortAsc = false;
 
     function applyPageSize() {{
         const val = document.getElementById('page-size').value;
@@ -455,8 +455,31 @@ def show_relic_analysis(runs: list[dict]) -> None:
             limit >= rows.length ? `${{rows.length}} relics` : `${{shown}} of ${{rows.length}} relics`;
     }}
 
-    document.getElementById('page-size').addEventListener('change', applyPageSize);
-    applyPageSize();
+    function sortTable(key, asc) {{
+        const tbody = document.querySelector('#tbl tbody');
+        Array.from(tbody.querySelectorAll('tr')).sort((a, b) => {{
+            const av = a.dataset[key], bv = b.dataset[key];
+            const an = parseFloat(av), bn = parseFloat(bv);
+            const cmp = isNaN(an) ? av.localeCompare(bv) : an - bn;
+            return asc ? cmp : -cmp;
+        }}).forEach(r => tbody.appendChild(r));
+        applyPageSize();
+    }}
+
+    document.querySelectorAll('th[data-key]').forEach(th => {{
+        th.addEventListener('click', () => {{
+            const key = th.dataset.key;
+            sortAsc = key === sortKey ? !sortAsc : false;
+            sortKey = key;
+            sortTable(sortKey, sortAsc);
+            document.querySelectorAll('th').forEach(h => {{
+                h.classList.remove('sorted');
+                h.querySelector('.arrow').textContent = '↕';
+            }});
+            th.classList.add('sorted');
+            th.querySelector('.arrow').textContent = sortAsc ? '↑' : '↓';
+        }});
+    }});
 
     document.querySelectorAll('.rr').forEach(row => {{
         row.addEventListener('mouseenter', () => {{
@@ -473,6 +496,9 @@ def show_relic_analysis(runs: list[dict]) -> None:
         }});
         row.addEventListener('mouseleave', () => {{ tip.style.display = 'none'; }});
     }});
+
+    document.getElementById('page-size').addEventListener('change', applyPageSize);
+    applyPageSize();
 </script>
 </body></html>"""
 
