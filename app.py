@@ -820,13 +820,23 @@ def show_relic_analysis(runs: list[dict]) -> None:
 # Metric registry
 # ---------------------------------------------------------------------------
 
+def show_general(runs: list[dict]) -> None:
+    """Combined overview: all win rate and time metrics on one page."""
+    show_win_rate(runs)
+    st.divider()
+    show_win_rate_after_act1(runs)
+    st.divider()
+    show_win_rate_after_act2(runs)
+    st.divider()
+    show_average_time(runs)
+    st.divider()
+    show_total_time(runs)
+    st.divider()
+    show_total_time_truncated(runs)
+
+
 METRICS: dict[str, callable] = {
-    "Win rate":                              show_win_rate,
-    "Win rate after finishing Act 1":        show_win_rate_after_act1,
-    "Win rate after finishing Act 2":        show_win_rate_after_act2,
-    "Average time per run":                  show_average_time,
-    "Total time spent on runs":              show_total_time,
-    "Total time (truncated per outcome)":    show_total_time_truncated,
+    "General":                                show_general,
     "Elite analysis":                        show_elite_analysis,
     "Relic analysis":                        show_relic_analysis,
 }
