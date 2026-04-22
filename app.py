@@ -540,7 +540,8 @@ def show_elite_analysis(runs: list[dict]) -> None:
                 const url = new URL(window.parent.location.href);
                 url.searchParams.set('enc_detail', row.dataset.encId);
                 url.searchParams.set('enc_type', row.dataset.encType);
-                window.parent.location.href = url.toString();
+                window.parent.history.pushState({{}}, '', url.toString());
+                window.parent.dispatchEvent(new PopStateEvent('popstate'));
             }});
         }});
     </script>
@@ -991,7 +992,8 @@ def show_boss_analysis(runs: list[dict]) -> None:
                 const url = new URL(window.parent.location.href);
                 url.searchParams.set('enc_detail', row.dataset.encId);
                 url.searchParams.set('enc_type', row.dataset.encType);
-                window.parent.location.href = url.toString();
+                window.parent.history.pushState({{}}, '', url.toString());
+                window.parent.dispatchEvent(new PopStateEvent('popstate'));
             }});
         }});
     </script>
