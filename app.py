@@ -16,13 +16,20 @@ import streamlit as st
 
 
 # ---------------------------------------------------------------------------
-# Persistent file store (survives page refreshes for the lifetime of the server)
+# Persistent file store — keyed by username
 # ---------------------------------------------------------------------------
 
 @st.cache_resource
-def get_file_store() -> dict[str, bytes]:
-    """Returns a single shared dict that persists across sessions and refreshes."""
+def get_all_stores() -> dict[str, dict[str, bytes]]:
+    """Global store: { username -> { filename -> raw bytes } }. Persists across refreshes."""
     return {}
+
+
+def get_user_store(username: str) -> dict[str, bytes]:
+    all_stores = get_all_stores()
+    if username not in all_stores:
+        all_stores[username] = {}
+    return all_stores[username]
 
 
 # ---------------------------------------------------------------------------
@@ -37,17 +44,16 @@ def parse_run(name: str, raw: bytes) -> dict | None:
         return None
 
 
-def sync_uploads(uploaded_files) -> None:
-    """Merge newly uploaded files into the store, skipping duplicates by name."""
-    store = get_file_store()
+def sync_uploads(uploaded_files, username: str) -> None:
+    store = get_user_store(username)
     for f in uploaded_files:
         if f.name not in store:
             store[f.name] = f.read()
 
 
-def load_runs_from_store() -> list[dict]:
+def load_runs(username: str) -> list[dict]:
     runs = []
-    for name, raw in get_file_store().items():
+    for name, raw in get_user_store(username).items():
         data = parse_run(name, raw)
         if data is not None:
             runs.append(data)
@@ -191,8 +197,17 @@ def main() -> None:
     st.set_page_config(page_title="STS Run Analyser", page_icon="🗡️", layout="centered")
     st.title("🗡️ STS Run Analyser")
 
+    # ── Sidebar ──────────────────────────────────────────────────────────
     with st.sidebar:
-        st.header("1. Upload your .run files")
+        st.header("Who are you?")
+        username = st.text_input("Enter your name", placeholder="e.g. Ricardo").strip()
+
+        if not username:
+            st.info("Enter your name to get started.")
+            st.stop()
+
+        st.divider()
+        st.header("Upload your .run files")
         uploaded = st.file_uploader(
             "Select one or more .run files",
             type="run",
@@ -200,19 +215,19 @@ def main() -> None:
         )
 
         if uploaded:
-            sync_uploads(uploaded)
+            sync_uploads(uploaded, username)
 
-        store = get_file_store()
+        store = get_user_store(username)
         if store:
             st.success(f"{len(store)} file(s) loaded")
             with st.expander("Loaded files"):
                 for name in store:
                     st.text(f"• {name}")
-            if st.button("🗑️ Clear all files", use_container_width=True):
+            if st.button("🗑️ Clear my files", use_container_width=True):
                 store.clear()
                 st.rerun()
 
-    runs = load_runs_from_store()
+    runs = load_runs(username)
 
     if not runs:
         st.info("👈 Upload your .run files using the sidebar to get started.")
