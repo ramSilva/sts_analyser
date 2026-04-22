@@ -366,7 +366,7 @@ def show_relic_analysis(runs: list[dict]) -> None:
                 "effect": info["effect"],
             })
 
-    # Default sort: win rate descending
+    # Python default sort (Win Rate desc) — JS will restore user sort on load
     rows.sort(key=lambda x: x["rate"], reverse=True)
 
     rows_html = ""
@@ -434,13 +434,16 @@ def show_relic_analysis(runs: list[dict]) -> None:
         <th data-key="total">Runs <span class="arrow">↕</span></th>
         <th data-key="wins">Wins <span class="arrow">↕</span></th>
         <th data-key="losses">Losses <span class="arrow">↕</span></th>
-        <th data-key="rate" class="sorted">Win Rate <span class="arrow">↓</span></th>
+        <th data-key="rate">Win Rate <span class="arrow">↕</span></th>
     </tr></thead>
     <tbody>{rows_html}</tbody>
 </table>
 <script>
     const tip = document.getElementById('tip');
-    let sortKey = 'rate', sortAsc = false;
+    const SS_KEY = 'relic_sort_key';
+    const SS_ASC = 'relic_sort_asc';
+    let sortKey = sessionStorage.getItem(SS_KEY) || 'rate';
+    let sortAsc  = sessionStorage.getItem(SS_ASC) === 'true';
 
     function applyPageSize() {{
         const val = document.getElementById('page-size').value;
@@ -455,29 +458,40 @@ def show_relic_analysis(runs: list[dict]) -> None:
             limit >= rows.length ? `${{rows.length}} relics` : `${{shown}} of ${{rows.length}} relics`;
     }}
 
-    function sortTable(key, asc) {{
+    function updateHeaderUI() {{
+        document.querySelectorAll('th[data-key]').forEach(h => {{
+            h.classList.remove('sorted');
+            h.querySelector('.arrow').textContent = '↕';
+        }});
+        const active = document.querySelector(`th[data-key="${{sortKey}}"]`);
+        if (active) {{
+            active.classList.add('sorted');
+            active.querySelector('.arrow').textContent = sortAsc ? '↑' : '↓';
+        }}
+    }}
+
+    function sortTable() {{
         const tbody = document.querySelector('#tbl tbody');
         Array.from(tbody.querySelectorAll('tr')).sort((a, b) => {{
-            const av = a.dataset[key], bv = b.dataset[key];
+            const av = a.dataset[sortKey], bv = b.dataset[sortKey];
             const an = parseFloat(av), bn = parseFloat(bv);
             const cmp = isNaN(an) ? av.localeCompare(bv) : an - bn;
-            return asc ? cmp : -cmp;
+            return sortAsc ? cmp : -cmp;
         }}).forEach(r => tbody.appendChild(r));
+        updateHeaderUI();
         applyPageSize();
     }}
 
+    // Restore sort on every render (survives Streamlit rerenders)
+    sortTable();
+
     document.querySelectorAll('th[data-key]').forEach(th => {{
         th.addEventListener('click', () => {{
-            const key = th.dataset.key;
-            sortAsc = key === sortKey ? !sortAsc : false;
-            sortKey = key;
-            sortTable(sortKey, sortAsc);
-            document.querySelectorAll('th').forEach(h => {{
-                h.classList.remove('sorted');
-                h.querySelector('.arrow').textContent = '↕';
-            }});
-            th.classList.add('sorted');
-            th.querySelector('.arrow').textContent = sortAsc ? '↑' : '↓';
+            sortAsc = th.dataset.key === sortKey ? !sortAsc : false;
+            sortKey = th.dataset.key;
+            sessionStorage.setItem(SS_KEY, sortKey);
+            sessionStorage.setItem(SS_ASC, sortAsc);
+            sortTable();
         }});
     }});
 
@@ -498,7 +512,6 @@ def show_relic_analysis(runs: list[dict]) -> None:
     }});
 
     document.getElementById('page-size').addEventListener('change', applyPageSize);
-    applyPageSize();
 </script>
 </body></html>"""
 
