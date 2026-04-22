@@ -311,7 +311,7 @@ def fetch_relic_info(relic_id: str) -> dict:
 
 
 def show_relic_analysis(runs: list[dict]) -> None:
-    """Win rate per relic with wiki image/description on hover."""
+    """Win rate per relic with wiki image/description on hover and click-to-sort headers."""
     import base64
     import json as _json
     from collections import defaultdict
@@ -350,13 +350,16 @@ def show_relic_analysis(runs: list[dict]) -> None:
         tip_b64 = base64.b64encode(
             _json.dumps({"name": row["name"], "image": row["image"], "effect": row["effect"]}).encode()
         ).decode()
-        rows_html += f"""<tr class="rr" data-tip="{tip_b64}">
-            <td>{row["name"]}</td>
-            <td>{row["total"]}</td>
-            <td>{row["wins"]}</td>
-            <td>{row["losses"]}</td>
-            <td>{row["rate_str"]}</td>
-        </tr>"""
+        rows_html += (
+            f'''<tr class="rr" data-tip="{tip_b64}"'''
+            f''' data-name="{row["name"]}" data-total="{row["total"]}"'''
+            f''' data-wins="{row["wins"]}" data-losses="{row["losses"]}" data-rate="{row["rate"]}">'''
+            f'''<td>{row["name"]}</td>'''
+            f'''<td>{row["total"]}</td>'''
+            f'''<td>{row["wins"]}</td>'''
+            f'''<td>{row["losses"]}</td>'''
+            f'''<td>{row["rate_str"]}</td></tr>'''
+        )
 
     height = max(500, 80 + len(rows) * 42)
 
@@ -367,8 +370,15 @@ def show_relic_analysis(runs: list[dict]) -> None:
     body {{ background: #0e1117; color: #fafafa; font-family: "Source Sans Pro", sans-serif; font-size: 14px; }}
     table {{ width: 100%; border-collapse: collapse; }}
     thead tr {{ background: #262730; }}
-    th {{ padding: 10px 14px; text-align: left; font-weight: 600; color: #a0a0b0; font-size: 12px;
-          text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #3d3d4d; }}
+    th {{
+        padding: 10px 14px; text-align: left; font-weight: 600; color: #a0a0b0; font-size: 12px;
+        text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #3d3d4d;
+        cursor: pointer; user-select: none; white-space: nowrap;
+    }}
+    th:hover {{ color: #ffffff; }}
+    th.sorted {{ color: #7eb8f7; }}
+    th .arrow {{ margin-left: 5px; opacity: 0.5; }}
+    th.sorted .arrow {{ opacity: 1; }}
     td {{ padding: 9px 14px; border-bottom: 1px solid #1e1e2e; }}
     .rr:hover {{ background: #1e2130; cursor: default; }}
     #tip {{
@@ -386,12 +396,47 @@ def show_relic_analysis(runs: list[dict]) -> None:
     <div class="tip-name" id="tip-name"></div>
     <div class="tip-effect" id="tip-effect"></div>
 </div>
-<table>
-    <thead><tr><th>Relic</th><th>Runs</th><th>Wins</th><th>Losses</th><th>Win Rate</th></tr></thead>
+<table id="tbl">
+    <thead><tr>
+        <th data-key="name">Relic <span class="arrow">↕</span></th>
+        <th data-key="total">Runs <span class="arrow">↕</span></th>
+        <th data-key="wins">Wins <span class="arrow">↕</span></th>
+        <th data-key="losses">Losses <span class="arrow">↕</span></th>
+        <th data-key="rate" class="sorted">Win Rate <span class="arrow">↓</span></th>
+    </tr></thead>
     <tbody>{rows_html}</tbody>
 </table>
 <script>
     const tip = document.getElementById('tip');
+    let sortKey = 'rate', sortAsc = false;
+
+    function sortTable(key, asc) {{
+        const tbody = document.querySelector('#tbl tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort((a, b) => {{
+            const av = a.dataset[key], bv = b.dataset[key];
+            const an = parseFloat(av), bn = parseFloat(bv);
+            const cmp = isNaN(an) ? av.localeCompare(bv) : an - bn;
+            return asc ? cmp : -cmp;
+        }});
+        rows.forEach(r => tbody.appendChild(r));
+    }}
+
+    document.querySelectorAll('th[data-key]').forEach(th => {{
+        th.addEventListener('click', () => {{
+            const key = th.dataset.key;
+            if (key === sortKey) {{ sortAsc = !sortAsc; }}
+            else {{ sortKey = key; sortAsc = false; }}
+            sortTable(sortKey, sortAsc);
+            document.querySelectorAll('th').forEach(h => {{
+                h.classList.remove('sorted');
+                h.querySelector('.arrow').textContent = '↕';
+            }});
+            th.classList.add('sorted');
+            th.querySelector('.arrow').textContent = sortAsc ? '↑' : '↓';
+        }});
+    }});
+
     document.querySelectorAll('.rr').forEach(row => {{
         row.addEventListener('mouseenter', () => {{
             const d = JSON.parse(atob(row.dataset.tip));
