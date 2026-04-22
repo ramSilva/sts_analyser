@@ -318,6 +318,56 @@ def get_elite_encounter_stats(runs: list[dict]) -> list[dict]:
 
     return sorted(result, key=lambda x: x["count"], reverse=True)
 
+
+def get_boss_encounter_stats(runs: list[dict]) -> list[dict]:
+    """Aggregate per-boss stats across all runs."""
+    from collections import defaultdict
+    stats: dict = defaultdict(lambda: {"count": 0, "dmg": [], "turns": [], "wins": 0, "losses": 0, "acts": set()})
+
+    for run in runs:
+        won = is_win(run)
+        counted_for_win: set[str] = set()
+        for act_idx, act in enumerate(run.get("map_point_history", []), start=1):
+            for point in act:
+                if point.get("map_point_type") != "boss":
+                    continue
+                rooms = point.get("rooms", [])
+                if not rooms:
+                    continue
+                enc_id = rooms[0].get("model_id", "")
+                if not enc_id:
+                    continue
+                turns = rooms[0].get("turns_taken", 0)
+                ps_list = point.get("player_stats", [])
+                dmg = ps_list[0].get("damage_taken", 0) if ps_list else 0
+                s = stats[enc_id]
+                s["count"] += 1
+                s["dmg"].append(dmg)
+                s["turns"].append(turns)
+                s["acts"].add(act_idx)
+                if enc_id not in counted_for_win:
+                    counted_for_win.add(enc_id)
+                    if won:
+                        s["wins"] += 1
+                    else:
+                        s["losses"] += 1
+
+    result = []
+    for enc_id, s in stats.items():
+        total_runs = s["wins"] + s["losses"]
+        result.append({
+            "enc_id":     enc_id,
+            "name":       encounter_id_to_name(enc_id),
+            "count":      s["count"],
+            "avg_dmg":    sum(s["dmg"]) / len(s["dmg"]) if s["dmg"] else 0,
+            "avg_turns":  sum(s["turns"]) / len(s["turns"]) if s["turns"] else 0,
+            "win_rate":   s["wins"] / total_runs if total_runs else 0,
+            "total_runs": total_runs,
+            "acts":       ", ".join(str(a) for a in sorted(s["acts"])),
+        })
+
+    return sorted(result, key=lambda x: x["count"], reverse=True)
+
 def show_elite_analysis(runs: list[dict]) -> None:
     """Win rate by elite count bracket + elite density per outcome."""
     wins_list = [r for r in runs if is_win(r)]
@@ -820,6 +870,205 @@ def show_relic_analysis(runs: list[dict]) -> None:
 # Metric registry
 # ---------------------------------------------------------------------------
 
+def show_boss_analysis(runs: list[dict]) -> None:
+    """Boss encounter breakdown."""
+
+    # ── Per-encounter table ──────────────────────────────────────────────
+    st.divider()
+    st.subheader("Elite encounter breakdown")
+
+    enc_stats = get_boss_encounter_stats(runs)
+    if not enc_stats:
+        st.info("No boss encounter data found.")
+        return
+
+    with st.spinner("Fetching boss info from wiki..."):
+        import base64 as _b64, json as _json
+        rows_html = ""
+        for row in enc_stats:
+            info = fetch_encounter_info(row["enc_id"])
+            tip_data = {"name": row["name"], "moves": info["moves"]}
+            tip_b64 = _b64.b64encode(_json.dumps(tip_data).encode()).decode()
+            rows_html += (
+                f'''<tr class="rr" data-tip="{tip_b64}"'''
+                f''' data-name="{row["name"]}" data-count="{row["count"]}"'''
+                f''' data-avg_dmg="{row["avg_dmg"]:.1f}" data-avg_turns="{row["avg_turns"]:.1f}"'''
+                f''' data-win_rate="{row["win_rate"]}" data-acts="{row["acts"]}">'''
+                f'''<td>{row["name"]}</td>'''
+                f'''<td>{row["count"]}</td>'''
+                f'''<td>{row["avg_dmg"]:.1f}</td>'''
+                f'''<td>{row["avg_turns"]:.1f}</td>'''
+                f'''<td>{row["win_rate"]:.1%}</td>'''
+                f'''<td>{row["acts"]}</td></tr>'''
+            )
+
+    height = max(400, 80 + len(enc_stats) * 42)
+    html = f"""<!DOCTYPE html><html><head><style>
+    * {{ box-sizing:border-box; margin:0; padding:0; }}
+    body {{ background:#0e1117; color:#fafafa; font-family:"Source Sans Pro",sans-serif; font-size:14px; }}
+    table {{ width:100%; border-collapse:collapse; }}
+    thead tr {{ background:#262730; }}
+    th {{ padding:10px 14px; text-align:left; font-weight:600; color:#a0a0b0; font-size:12px;
+          text-transform:uppercase; letter-spacing:0.5px; border-bottom:1px solid #3d3d4d;
+          cursor:pointer; user-select:none; white-space:nowrap; }}
+    th:hover {{ color:#fff; }}
+    th.sorted {{ color:#7eb8f7; }}
+    th .arrow {{ margin-left:5px; opacity:0.5; }}
+    th.sorted .arrow {{ opacity:1; }}
+    td {{ padding:9px 14px; border-bottom:1px solid #1e1e2e; }}
+    .rr:hover {{ background:#1e2130; cursor:default; }}
+    #tip {{ display:none; position:fixed; background:#1e2130; color:#e0e0e0;
+            border:1px solid #3d3d5c; border-radius:10px; padding:14px; z-index:9999;
+            width:200px; box-shadow:0 6px 24px rgba(0,0,0,0.6); pointer-events:none; }}
+    #tip .tip-name {{ font-weight:700; font-size:14px; color:#fff; text-align:center; margin-bottom:4px; }}
+    #tip .tip-moves {{ font-size:12px; color:#9ab; line-height:1.5; }}
+    </style></head><body>
+    <div id="tip">
+        <div class="tip-name" id="tip-name"></div>
+        <div class="tip-moves" id="tip-moves"></div>
+    </div>
+    <table id="tbl">
+        <thead><tr>
+            <th data-key="name">Encounter <span class="arrow">↕</span></th>
+            <th data-key="count">Times Encountered <span class="arrow">↕</span></th>
+            <th data-key="avg_dmg">Avg Dmg Taken <span class="arrow">↕</span></th>
+            <th data-key="avg_turns">Avg Turns <span class="arrow">↕</span></th>
+            <th data-key="win_rate">Win Rate <span class="arrow">↕</span></th>
+            <th data-key="acts">Act <span class="arrow">↕</span></th>
+        </tr></thead>
+        <tbody>{rows_html}</tbody>
+    </table>
+    <script>
+        const tip = document.getElementById('tip');
+        let sortKey = 'count', sortAsc = false;
+
+        function updateHeaderUI() {{
+            document.querySelectorAll('th[data-key]').forEach(h => {{
+                h.classList.remove('sorted');
+                h.querySelector('.arrow').textContent = '↕';
+            }});
+            const a = document.querySelector(`th[data-key="${{sortKey}}"]`);
+            if (a) {{ a.classList.add('sorted'); a.querySelector('.arrow').textContent = sortAsc ? '↑' : '↓'; }}
+        }}
+
+        function sortTable() {{
+            const tbody = document.querySelector('#tbl tbody');
+            Array.from(tbody.querySelectorAll('tr')).sort((a, b) => {{
+                const av = a.dataset[sortKey], bv = b.dataset[sortKey];
+                const an = parseFloat(av), bn = parseFloat(bv);
+                const cmp = isNaN(an) ? av.localeCompare(bv) : an - bn;
+                return sortAsc ? cmp : -cmp;
+            }}).forEach(r => tbody.appendChild(r));
+            updateHeaderUI();
+        }}
+
+        sortTable();
+
+        document.querySelectorAll('th[data-key]').forEach(th => {{
+            th.addEventListener('click', () => {{
+                sortAsc = th.dataset.key === sortKey ? !sortAsc : false;
+                sortKey = th.dataset.key;
+                sortTable();
+            }});
+        }});
+
+        document.querySelectorAll('.rr').forEach(row => {{
+            row.addEventListener('mouseenter', () => {{
+                const d = JSON.parse(atob(row.dataset.tip));
+                document.getElementById('tip-name').textContent = d.name;
+                document.getElementById('tip-moves').textContent = d.moves ? 'Moves: ' + d.moves : '';
+                tip.style.display = 'block';
+            }});
+            row.addEventListener('mousemove', e => {{
+                tip.style.left = (e.clientX + 16) + 'px';
+                tip.style.top  = (e.clientY + 16) + 'px';
+            }});
+            row.addEventListener('mouseleave', () => {{ tip.style.display = 'none'; }});
+        }});
+    </script>
+    </body></html>"""
+    st.components.v1.html(html, height=height, scrolling=True)
+
+
+def get_chosen_relic_ids(run: dict) -> set[str]:
+    """Relic IDs the player was offered as an explicit choice during the run."""
+    chosen = set()
+    for act_idx, act in enumerate(run.get("map_point_history", []), start=1):
+        for point in act:
+            ps_list = point.get("player_stats", [])
+            ps = ps_list[0] if ps_list else {}
+            for rc in ps.get("relic_choices", []):
+                if "choice" in rc:
+                    chosen.add(rc["choice"])
+    return chosen
+
+
+def get_relic_offer_stats(runs: list[dict]) -> dict[str, dict]:
+    """For each relic, count how many times it was offered and how many times picked.
+
+    Each entry in relic_choices is one offered relic:
+      {"choice": "RELIC.X", "was_picked": true/false}
+    """
+    from collections import defaultdict
+    offered: dict[str, int] = defaultdict(int)
+    picked: dict[str, int] = defaultdict(int)
+    for run in runs:
+        for act in run.get("map_point_history", []):
+            for point in act:
+                ps_list = point.get("player_stats", [])
+                ps = ps_list[0] if ps_list else {}
+                for rc in ps.get("relic_choices", []):
+                    relic_id = rc.get("choice")
+                    if not relic_id:
+                        continue
+                    offered[relic_id] += 1
+                    if rc.get("was_picked"):
+                        picked[relic_id] += 1
+    return {
+        relic: {"offered": offered[relic], "picked": picked.get(relic, 0)}
+        for relic in offered
+    }
+
+
+def get_starting_relic_ids(run: dict) -> set[str]:
+    """Relics the player had that were never offered as a choice — true starting relics."""
+    chosen = get_chosen_relic_ids(run)
+    all_relics = {r["id"] for r in run.get("players", [{}])[0].get("relics", []) if "id" in r}
+    return all_relics - chosen
+
+
+def relic_id_to_slug(relic_id: str) -> str:
+    return relic_id.replace("RELIC.", "").replace("_", "-").lower()
+
+
+def relic_id_to_img_name(relic_id: str) -> str:
+    return relic_id.replace("RELIC.", "").lower()
+
+
+@st.cache_data(ttl=86400)
+def fetch_relic_info(relic_id: str) -> dict:
+    """Fetch relic effect text from spirewiki.com. Image URL is derived directly."""
+    import re
+    import urllib.request
+
+    slug = relic_id_to_slug(relic_id)
+    img_name = relic_id_to_img_name(relic_id)
+    image_url = f"https://spirewiki.com/images/relics/{img_name}.png"
+    page_url = f"https://spirewiki.com/relics/{slug}"
+
+    try:
+        req = urllib.request.Request(page_url, headers={"User-Agent": "STS2Analyser/1.0"})
+        html = urllib.request.urlopen(req, timeout=5).read().decode()
+        match = re.search(r'Effect\s*</[^>]+>\s*<[^>]+>\s*([^<]+)', html)
+        effect = match.group(1).strip() if match else "No description available."
+    except Exception:
+        effect = "Could not load description."
+
+    return {"image": image_url, "effect": effect}
+
+
+
+
 def show_general(runs: list[dict]) -> None:
     """Combined overview: all win rate and time metrics on one page."""
     show_win_rate(runs)
@@ -838,6 +1087,7 @@ def show_general(runs: list[dict]) -> None:
 METRICS: dict[str, callable] = {
     "General":                                show_general,
     "Elite analysis":                        show_elite_analysis,
+    "Boss analysis":                         show_boss_analysis,
     "Relic analysis":                        show_relic_analysis,
 }
 
