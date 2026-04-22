@@ -11,11 +11,17 @@ Deploy free:
 """
 
 import json
+import os
 import re
 
 import altair as alt
 
 import streamlit as st
+
+_encounter_table = st.components.v1.declare_component(
+    "encounter_table",
+    path=os.path.join(os.path.dirname(__file__), "components/encounter_table"),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -447,121 +453,26 @@ def show_elite_analysis(runs: list[dict]) -> None:
         return
 
     with st.spinner("Fetching elite info from wiki..."):
-        import base64 as _b64, json as _json
-        rows_html = ""
+        enc_stats_data = []
         for row in enc_stats:
             info = fetch_encounter_info(row["enc_id"])
-            tip_data = {"name": row["name"], "moves": info["moves"]}
-            tip_b64 = _b64.b64encode(_json.dumps(tip_data).encode()).decode()
-            rows_html += (
-                f'<tr class="rr" data-tip="{tip_b64}"'
-                f' data-name="{row["name"]}" data-count="{row["count"]}"'
-                f' data-avg_dmg="{row["avg_dmg"]:.1f}" data-avg_turns="{row["avg_turns"]:.1f}"'
-                f' data-win_rate="{row["win_rate"]}" data-acts="{row["acts"]}"'
-                f' data-enc-id="{row["enc_id"]}" data-enc-type="{row["enc_type"]}">' 
-                f'<td>{row["name"]}</td>'
-                f'<td>{row["count"]}</td>'
-                f'<td>{row["avg_dmg"]:.1f}</td>'
-                f'<td>{row["avg_turns"]:.1f}</td>'
-                f'<td>{row["win_rate"]:.1%}</td>'
-                f'<td>{row["acts"]}</td></tr>'
-            )
+            enc_stats_data.append({
+                "enc_id":    row["enc_id"],
+                "enc_type":  row["enc_type"],
+                "name":      row["name"],
+                "count":     row["count"],
+                "avg_dmg":   f"{row['avg_dmg']:.1f}",
+                "avg_turns": f"{row['avg_turns']:.1f}",
+                "win_rate":  f"{row['win_rate']:.1%}",
+                "acts":      row["acts"],
+                "moves":     info["moves"],
+            })
 
-    height = max(400, 80 + len(enc_stats) * 42)
-    html = f"""<!DOCTYPE html><html><head><style>
-    * {{ box-sizing:border-box; margin:0; padding:0; }}
-    body {{ background:#0e1117; color:#fafafa; font-family:"Source Sans Pro",sans-serif; font-size:14px; }}
-    table {{ width:100%; border-collapse:collapse; }}
-    thead tr {{ background:#262730; }}
-    th {{ padding:10px 14px; text-align:left; font-weight:600; color:#a0a0b0; font-size:12px;
-          text-transform:uppercase; letter-spacing:0.5px; border-bottom:1px solid #3d3d4d;
-          cursor:pointer; user-select:none; white-space:nowrap; }}
-    th:hover {{ color:#fff; }}
-    th.sorted {{ color:#7eb8f7; }}
-    th .arrow {{ margin-left:5px; opacity:0.5; }}
-    th.sorted .arrow {{ opacity:1; }}
-    td {{ padding:9px 14px; border-bottom:1px solid #1e1e2e; }}
-    .rr:hover {{ background:#1e2130; cursor:pointer; }}
-    #tip {{ display:none; position:fixed; background:#1e2130; color:#e0e0e0;
-            border:1px solid #3d3d5c; border-radius:10px; padding:14px; z-index:9999;
-            width:200px; box-shadow:0 6px 24px rgba(0,0,0,0.6); pointer-events:none; }}
-    #tip .tip-name {{ font-weight:700; font-size:14px; color:#fff; text-align:center; margin-bottom:4px; }}
-    #tip .tip-moves {{ font-size:12px; color:#9ab; line-height:1.5; }}
-    </style></head><body>
-    <div id="tip">
-        <div class="tip-name" id="tip-name"></div>
-        <div class="tip-moves" id="tip-moves"></div>
-    </div>
-    <table id="tbl">
-        <thead><tr>
-            <th data-key="name">Encounter <span class="arrow">&#x21D5;</span></th>
-            <th data-key="count">Times Encountered <span class="arrow">&#x21D5;</span></th>
-            <th data-key="avg_dmg">Avg Dmg Taken <span class="arrow">&#x21D5;</span></th>
-            <th data-key="avg_turns">Avg Turns <span class="arrow">&#x21D5;</span></th>
-            <th data-key="win_rate">Win Rate <span class="arrow">&#x21D5;</span></th>
-            <th data-key="acts">Act <span class="arrow">&#x21D5;</span></th>
-        </tr></thead>
-        <tbody>{rows_html}</tbody>
-    </table>
-    <script>
-        const tip = document.getElementById('tip');
-        let sortKey = 'count', sortAsc = false;
-
-        function updateHeaderUI() {{
-            document.querySelectorAll('th[data-key]').forEach(h => {{
-                h.classList.remove('sorted');
-                h.querySelector('.arrow').innerHTML = '&#x21D5;';
-            }});
-            const a = document.querySelector(`th[data-key="${{sortKey}}"]`);
-            if (a) {{
-                a.classList.add('sorted');
-                a.querySelector('.arrow').innerHTML = sortAsc ? '&#x2191;' : '&#x2193;';
-            }}
-        }}
-
-        function sortTable() {{
-            const tbody = document.querySelector('#tbl tbody');
-            Array.from(tbody.querySelectorAll('tr')).sort((a, b) => {{
-                const av = a.dataset[sortKey], bv = b.dataset[sortKey];
-                const an = parseFloat(av), bn = parseFloat(bv);
-                const cmp = isNaN(an) ? av.localeCompare(bv) : an - bn;
-                return sortAsc ? cmp : -cmp;
-            }}).forEach(r => tbody.appendChild(r));
-            updateHeaderUI();
-        }}
-
-        sortTable();
-
-        document.querySelectorAll('th[data-key]').forEach(th => {{
-            th.addEventListener('click', () => {{
-                sortAsc = th.dataset.key === sortKey ? !sortAsc : false;
-                sortKey = th.dataset.key;
-                sortTable();
-            }});
-        }});
-
-        document.querySelectorAll('.rr').forEach(row => {{
-            row.addEventListener('mouseenter', () => {{
-                const d = JSON.parse(atob(row.dataset.tip));
-                document.getElementById('tip-name').textContent = d.name;
-                document.getElementById('tip-moves').textContent = d.moves ? 'Moves: ' + d.moves : '';
-                tip.style.display = 'block';
-            }});
-            row.addEventListener('mousemove', e => {{
-                tip.style.left = (e.clientX + 16) + 'px';
-                tip.style.top  = (e.clientY + 16) + 'px';
-            }});
-            row.addEventListener('mouseleave', () => {{ tip.style.display = 'none'; }});
-            row.addEventListener('click', () => {{
-                const url = new URL(window.parent.location.href);
-                url.searchParams.set('enc_detail', row.dataset.encId);
-                url.searchParams.set('enc_type', row.dataset.encType);
-                window.parent.location.href = url.toString();
-            }});
-        }});
-    </script>
-    </body></html>"""
-    st.components.v1.html(html, height=height, scrolling=True)
+    selected = _encounter_table(enc_stats=enc_stats_data, key="elite_table", default=None)
+    if selected:
+        st.query_params["enc_detail"] = selected["enc_id"]
+        st.query_params["enc_type"]   = selected["enc_type"]
+        st.rerun()
 
 
 def get_chosen_relic_ids(run: dict) -> set[str]:
