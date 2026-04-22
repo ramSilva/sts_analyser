@@ -292,6 +292,32 @@ def get_chosen_relic_ids(run: dict) -> set[str]:
     return chosen
 
 
+def get_relic_offer_stats(runs: list[dict]) -> dict[str, dict]:
+    """For each relic, count how many times it was offered and how many times picked."""
+    from collections import defaultdict
+    offered: dict[str, int] = defaultdict(int)
+    picked: dict[str, int] = defaultdict(int)
+    for run in runs:
+        for act in run.get("map_point_history", []):
+            for point in act:
+                for ps in point.get("player_stats", []):
+                    for rc in ps.get("relic_choices", []):
+                        choice = rc.get("choice")
+                        # Collect all options from whichever field is present
+                        all_opts = (
+                            rc.get("choices")
+                            or ([choice] + rc.get("not_picked", []) if choice else [])
+                        )
+                        for relic in all_opts:
+                            offered[relic] += 1
+                        if choice:
+                            picked[choice] += 1
+    return {
+        relic: {"offered": offered[relic], "picked": picked.get(relic, 0)}
+        for relic in offered
+    }
+
+
 def get_starting_relic_ids(run: dict) -> set[str]:
     """Relics the player had that were never offered as a choice — true starting relics."""
     chosen = get_chosen_relic_ids(run)
@@ -330,12 +356,14 @@ def fetch_relic_info(relic_id: str) -> dict:
 
 
 def show_relic_analysis(runs: list[dict]) -> None:
-    """Win rate per relic with wiki image/description on hover and click-to-sort headers."""
+    """Win rate and pick rate per relic with wiki hover tooltip."""
     import base64
     import json as _json
     from collections import defaultdict
 
     ignore_starting = st.toggle("Ignore starting relics", value=True)
+
+    offer_stats = get_relic_offer_stats(runs)
 
     relic_runs: dict[str, list[bool]] = defaultdict(list)
     for r in runs:
@@ -354,16 +382,23 @@ def show_relic_analysis(runs: list[dict]) -> None:
         for relic_id, outcomes in relic_runs.items():
             total = len(outcomes)
             wins = sum(outcomes)
+            stats = offer_stats.get(relic_id, {})
+            n_offered = stats.get("offered", 0)
+            n_picked  = stats.get("picked", 0)
+            pick_rate = n_picked / n_offered if n_offered else None
             info = fetch_relic_info(relic_id)
             rows.append({
-                "name": relic_id.replace("RELIC.", "").replace("_", " ").title(),
-                "total": total,
-                "wins": wins,
-                "losses": total - wins,
-                "rate": wins / total,
-                "rate_str": f"{wins / total:.1%}",
-                "image": info["image"],
-                "effect": info["effect"],
+                "name":          relic_id.replace("RELIC.", "").replace("_", " ").title(),
+                "total":         total,
+                "wins":          wins,
+                "losses":        total - wins,
+                "rate":          wins / total,
+                "rate_str":      f"{wins / total:.1%}",
+                "offered":       n_offered,
+                "pick_rate":     pick_rate if pick_rate is not None else -1,
+                "pick_rate_str": f"{pick_rate:.1%}" if pick_rate is not None else "—",
+                "image":         info["image"],
+                "effect":        info["effect"],
             })
 
     rows.sort(key=lambda x: x["rate"], reverse=True)
@@ -376,10 +411,13 @@ def show_relic_analysis(runs: list[dict]) -> None:
         rows_html += (
             f'''<tr class="rr" data-tip="{tip_b64}"'''
             f''' data-name="{row["name"]}" data-total="{row["total"]}"'''
-            f''' data-wins="{row["wins"]}" data-losses="{row["losses"]}" data-rate="{row["rate"]}">'''
+            f''' data-wins="{row["wins"]}" data-losses="{row["losses"]}"'''
+            f''' data-rate="{row["rate"]}" data-offered="{row["offered"]}"'''
+            f''' data-pick_rate="{row["pick_rate"]}">'''
             f'''<td>{row["name"]}</td><td>{row["total"]}</td>'''
             f'''<td>{row["wins"]}</td><td>{row["losses"]}</td>'''
-            f'''<td>{row["rate_str"]}</td></tr>'''
+            f'''<td>{row["rate_str"]}</td>'''
+            f'''<td>{row["pick_rate_str"]}</td></tr>'''
         )
 
     height = max(500, 80 + len(rows) * 42)
@@ -449,6 +487,7 @@ def show_relic_analysis(runs: list[dict]) -> None:
         <th data-key="wins">Wins <span class="arrow">↕</span></th>
         <th data-key="losses">Losses <span class="arrow">↕</span></th>
         <th data-key="rate">Win Rate <span class="arrow">↕</span></th>
+        <th data-key="pick_rate">Pick Rate <span class="arrow">↕</span></th>
     </tr></thead>
     <tbody>{rows_html}</tbody>
 </table>
@@ -472,25 +511,21 @@ def show_relic_analysis(runs: list[dict]) -> None:
         const rows = allRows();
         const total = rows.length;
         const pagination = document.getElementById('pagination');
-
         if (val === 'all') {{
             rows.forEach(r => r.style.display = '');
             document.getElementById('row-count').textContent = `${{total}} relics`;
             pagination.classList.remove('visible');
             return;
         }}
-
         const limit = parseInt(val);
         const totalPages = Math.ceil(total / limit);
         currentPage = Math.min(currentPage, totalPages);
         const from = (currentPage - 1) * limit;
         const to   = currentPage * limit;
-
         rows.forEach((r, i) => r.style.display = (i >= from && i < to) ? '' : 'none');
         document.getElementById('row-count').textContent =
             `${{Math.min(to, total) - from}} of ${{total}} relics`;
-        document.getElementById('pg-info').textContent =
-            `Page ${{currentPage}} of ${{totalPages}}`;
+        document.getElementById('pg-info').textContent = `Page ${{currentPage}} of ${{totalPages}}`;
         document.getElementById('btn-prev').disabled = currentPage <= 1;
         document.getElementById('btn-next').disabled = currentPage >= totalPages;
         pagination.classList.add('visible');
@@ -534,18 +569,13 @@ def show_relic_analysis(runs: list[dict]) -> None:
     }});
 
     document.getElementById('page-size').addEventListener('change', () => {{
-        currentPage = 1;
-        applyPage();
+        currentPage = 1; applyPage();
     }});
-
     document.getElementById('btn-prev').addEventListener('click', () => {{
-        currentPage--;
-        applyPage();
+        currentPage--; applyPage();
     }});
-
     document.getElementById('btn-next').addEventListener('click', () => {{
-        currentPage++;
-        applyPage();
+        currentPage++; applyPage();
     }});
 
     document.querySelectorAll('.rr').forEach(row => {{
