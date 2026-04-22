@@ -19,15 +19,31 @@ import streamlit as st
 # .run file loading
 # ---------------------------------------------------------------------------
 
-def load_run_files(uploaded_files) -> list[dict]:
-    """Parse all uploaded .run files (JSON) and return them as dicts."""
-    runs = []
+def parse_run(name: str, raw: bytes) -> dict | None:
+    """Parse a single .run file from raw bytes. Returns None on error."""
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        st.warning(f"⚠️ Skipping **{name}**: {e}")
+        return None
+
+
+def sync_uploads(uploaded_files) -> None:
+    """Merge newly uploaded files into session state, skipping duplicates by name."""
+    stored: dict[str, bytes] = st.session_state.setdefault("run_files", {})
     for f in uploaded_files:
-        try:
-            data = json.loads(f.read())
+        if f.name not in stored:
+            stored[f.name] = f.read()
+
+
+def load_runs_from_state() -> list[dict]:
+    """Parse all stored .run files from session state."""
+    stored: dict[str, bytes] = st.session_state.get("run_files", {})
+    runs = []
+    for name, raw in stored.items():
+        data = parse_run(name, raw)
+        if data is not None:
             runs.append(data)
-        except json.JSONDecodeError as e:
-            st.warning(f"⚠️ Skipping **{f.name}**: {e}")
     return runs
 
 
@@ -44,7 +60,6 @@ def finished_act1(run: dict) -> bool:
 
 
 def format_duration(seconds: float) -> str:
-    """Format a duration in seconds to a human-readable string."""
     seconds = int(seconds)
     h, rem = divmod(seconds, 3600)
     m, s = divmod(rem, 60)
@@ -115,11 +130,10 @@ def show_total_time(runs: list[dict]) -> None:
         st.warning("No run_time data found in the uploaded files.")
         return
 
-    total = sum(times)
     col1, col2 = st.columns(2)
     col1.metric("Runs with time data", len(times))
-    col2.metric("Total time", format_duration(total))
-    st.markdown(f"### Total time spent: **{format_duration(total)}**")
+    col2.metric("Total time", format_duration(sum(times)))
+    st.markdown(f"### Total time spent: **{format_duration(sum(times))}**")
 
 
 def show_total_time_truncated(runs: list[dict]) -> None:
@@ -142,15 +156,14 @@ def show_total_time_truncated(runs: list[dict]) -> None:
         st.warning("No run_time data found in the uploaded files.")
         return
 
-    total = sum(times)
     col1, col2 = st.columns(2)
     col1.metric("Runs with time data", len(times))
-    col2.metric("Total time (truncated)", format_duration(total))
-    st.markdown(f"### Total time (truncated): **{format_duration(total)}**")
+    col2.metric("Total time (truncated)", format_duration(sum(times)))
+    st.markdown(f"### Total time (truncated): **{format_duration(sum(times))}**")
 
 
 # ---------------------------------------------------------------------------
-# Metric registry — add new metrics here, nothing else needs to change
+# Metric registry
 # ---------------------------------------------------------------------------
 
 METRICS: dict[str, callable] = {
@@ -171,6 +184,7 @@ def main() -> None:
     st.set_page_config(page_title="STS Run Analyser", page_icon="🗡️", layout="centered")
     st.title("🗡️ STS Run Analyser")
 
+    # ── Sidebar: file upload + session management ────────────────────────
     with st.sidebar:
         st.header("1. Upload your .run files")
         uploaded = st.file_uploader(
@@ -179,17 +193,26 @@ def main() -> None:
             accept_multiple_files=True,
         )
 
-    if not uploaded:
+        if uploaded:
+            sync_uploads(uploaded)
+
+        stored = st.session_state.get("run_files", {})
+        if stored:
+            st.success(f"{len(stored)} file(s) loaded")
+            with st.expander("Loaded files"):
+                for name in stored:
+                    st.text(f"• {name}")
+            if st.button("🗑️ Clear all files", use_container_width=True):
+                st.session_state["run_files"] = {}
+                st.rerun()
+
+    runs = load_runs_from_state()
+
+    if not runs:
         st.info("👈 Upload your .run files using the sidebar to get started.")
         return
 
-    runs = load_run_files(uploaded)
-    if not runs:
-        st.error("No valid .run files could be parsed.")
-        return
-
-    st.success(f"✅ Loaded **{len(runs)}** run(s) successfully.")
-
+    # ── Main area ────────────────────────────────────────────────────────
     st.divider()
     st.header("2. Choose a metric")
     metric_label = st.selectbox("What would you like to calculate?", list(METRICS.keys()))
