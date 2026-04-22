@@ -511,6 +511,18 @@ def main() -> None:
             st.info("Enter your name to get started.")
             st.stop()
 
+        if username.strip().lower() == "zeperimo":
+            st.components.v1.html(
+                '''<html><head><style>
+                    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+                    img { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: fill; }
+                </style></head><body>
+                <img src="https://raw.githubusercontent.com/ramSilva/sts_analyser/main/zeperimo.jpg">
+                </body></html>''',
+                height=800,
+            )
+            st.stop()
+
         st.divider()
         st.header("Upload your .run files")
         uploaded = st.file_uploader(
