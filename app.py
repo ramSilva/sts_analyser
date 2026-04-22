@@ -285,10 +285,11 @@ def get_chosen_relic_ids(run: dict) -> set[str]:
     chosen = set()
     for act in run.get("map_point_history", []):
         for point in act:
-            for ps in point.get("player_stats", []):
-                for rc in ps.get("relic_choices", []):
-                    if "choice" in rc:
-                        chosen.add(rc["choice"])
+            ps_list = point.get("player_stats", [])
+            ps = ps_list[0] if ps_list else {}
+            for rc in ps.get("relic_choices", []):
+                if "choice" in rc:
+                    chosen.add(rc["choice"])
     return chosen
 
 
@@ -304,14 +305,15 @@ def get_relic_offer_stats(runs: list[dict]) -> dict[str, dict]:
     for run in runs:
         for act in run.get("map_point_history", []):
             for point in act:
-                for ps in point.get("player_stats", []):
-                    for rc in ps.get("relic_choices", []):
-                        relic_id = rc.get("choice")
-                        if not relic_id:
-                            continue
-                        offered[relic_id] += 1
-                        if rc.get("was_picked"):
-                            picked[relic_id] += 1
+                ps_list = point.get("player_stats", [])
+                ps = ps_list[0] if ps_list else {}
+                for rc in ps.get("relic_choices", []):
+                    relic_id = rc.get("choice")
+                    if not relic_id:
+                        continue
+                    offered[relic_id] += 1
+                    if rc.get("was_picked"):
+                        picked[relic_id] += 1
     return {
         relic: {"offered": offered[relic], "picked": picked.get(relic, 0)}
         for relic in offered
