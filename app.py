@@ -272,7 +272,7 @@ def fetch_encounter_info(enc_id: str) -> dict:
 def get_elite_encounter_stats(runs: list[dict]) -> list[dict]:
     """Aggregate per-encounter stats across all runs."""
     from collections import defaultdict
-    stats: dict = defaultdict(lambda: {"count": 0, "dmg": [], "turns": [], "wins": 0, "losses": 0})
+    stats: dict = defaultdict(lambda: {"count": 0, "dmg": [], "turns": [], "wins": 0, "losses": 0, "acts": set()})
 
     for run in runs:
         won = is_win(run)
@@ -391,12 +391,13 @@ def show_elite_analysis(runs: list[dict]) -> None:
                 f'''<tr class="rr" data-tip="{tip_b64}"'''
                 f''' data-name="{row["name"]}" data-count="{row["count"]}"'''
                 f''' data-avg_dmg="{row["avg_dmg"]:.1f}" data-avg_turns="{row["avg_turns"]:.1f}"'''
-                f''' data-win_rate="{row["win_rate"]}">'''
+                f''' data-win_rate="{row["win_rate"]}" data-acts="{row["acts"]}">'''
                 f'''<td>{row["name"]}</td>'''
                 f'''<td>{row["count"]}</td>'''
                 f'''<td>{row["avg_dmg"]:.1f}</td>'''
                 f'''<td>{row["avg_turns"]:.1f}</td>'''
-                f'''<td>{row["win_rate"]:.1%}</td></tr>'''
+                f'''<td>{row["win_rate"]:.1%}</td>'''
+                f'''<td>{row["acts"]}</td></tr>'''
             )
 
     height = max(400, 80 + len(enc_stats) * 42)
@@ -431,6 +432,7 @@ def show_elite_analysis(runs: list[dict]) -> None:
             <th data-key="avg_dmg">Avg Dmg Taken <span class="arrow">↕</span></th>
             <th data-key="avg_turns">Avg Turns <span class="arrow">↕</span></th>
             <th data-key="win_rate">Win Rate <span class="arrow">↕</span></th>
+            <th data-key="acts">Act <span class="arrow">↕</span></th>
         </tr></thead>
         <tbody>{rows_html}</tbody>
     </table>
@@ -489,7 +491,7 @@ def show_elite_analysis(runs: list[dict]) -> None:
 def get_chosen_relic_ids(run: dict) -> set[str]:
     """Relic IDs the player was offered as an explicit choice during the run."""
     chosen = set()
-    for act in run.get("map_point_history", []):
+    for act_idx, act in enumerate(run.get("map_point_history", []), start=1):
         for point in act:
             ps_list = point.get("player_stats", [])
             ps = ps_list[0] if ps_list else {}
