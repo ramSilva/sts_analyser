@@ -366,7 +366,6 @@ def show_relic_analysis(runs: list[dict]) -> None:
                 "effect": info["effect"],
             })
 
-    # Python default sort (Win Rate desc) — JS will restore user sort on load
     rows.sort(key=lambda x: x["rate"], reverse=True)
 
     rows_html = ""
@@ -403,6 +402,21 @@ def show_relic_analysis(runs: list[dict]) -> None:
     th.sorted .arrow {{ opacity: 1; }}
     td {{ padding: 9px 14px; border-bottom: 1px solid #1e1e2e; }}
     .rr:hover {{ background: #1e2130; cursor: default; }}
+    .controls {{ display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }}
+    .controls label {{ color: #a0a0b0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }}
+    select {{
+        background: #262730; color: #fafafa; border: 1px solid #3d3d4d;
+        border-radius: 6px; padding: 4px 8px; font-size: 13px; cursor: pointer;
+    }}
+    .pagination {{ display: none; align-items: center; gap: 8px; margin-top: 10px; }}
+    .pagination.visible {{ display: flex; }}
+    .pg-btn {{
+        background: #262730; color: #fafafa; border: 1px solid #3d3d4d;
+        border-radius: 6px; padding: 4px 12px; font-size: 13px; cursor: pointer;
+    }}
+    .pg-btn:hover:not(:disabled) {{ background: #3d3d5c; }}
+    .pg-btn:disabled {{ opacity: 0.35; cursor: default; }}
+    .pg-info {{ color: #a0a0b0; font-size: 12px; }}
     #tip {{
         display: none; position: fixed; background: #1e2130; color: #e0e0e0;
         border: 1px solid #3d3d5c; border-radius: 10px; padding: 14px;
@@ -418,15 +432,15 @@ def show_relic_analysis(runs: list[dict]) -> None:
     <div class="tip-name" id="tip-name"></div>
     <div class="tip-effect" id="tip-effect"></div>
 </div>
-<div style="margin-bottom:10px;display:flex;align-items:center;gap:8px;">
-    <label style="color:#a0a0b0;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">Show</label>
-    <select id="page-size" style="background:#262730;color:#fafafa;border:1px solid #3d3d4d;border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer;">
+<div class="controls">
+    <label>Show</label>
+    <select id="page-size">
         <option value="5">5</option>
         <option value="10">10</option>
         <option value="25">25</option>
         <option value="all">All</option>
     </select>
-    <span id="row-count" style="color:#a0a0b0;font-size:12px;margin-left:4px;"></span>
+    <span id="row-count" style="color:#a0a0b0;font-size:12px;"></span>
 </div>
 <table id="tbl">
     <thead><tr>
@@ -438,24 +452,48 @@ def show_relic_analysis(runs: list[dict]) -> None:
     </tr></thead>
     <tbody>{rows_html}</tbody>
 </table>
+<div class="pagination" id="pagination">
+    <button class="pg-btn" id="btn-prev">← Prev</button>
+    <span class="pg-info" id="pg-info"></span>
+    <button class="pg-btn" id="btn-next">Next →</button>
+</div>
 <script>
     const tip = document.getElementById('tip');
     const SS_KEY = 'relic_sort_key';
     const SS_ASC = 'relic_sort_asc';
     let sortKey = sessionStorage.getItem(SS_KEY) || 'rate';
     let sortAsc  = sessionStorage.getItem(SS_ASC) === 'true';
+    let currentPage = 1;
 
-    function applyPageSize() {{
+    function allRows() {{ return Array.from(document.querySelectorAll('#tbl tbody tr')); }}
+
+    function applyPage() {{
         const val = document.getElementById('page-size').value;
-        const limit = val === 'all' ? Infinity : parseInt(val);
-        const rows = document.querySelectorAll('#tbl tbody tr');
-        let shown = 0;
-        rows.forEach(r => {{
-            if (shown < limit) {{ r.style.display = ''; shown++; }}
-            else {{ r.style.display = 'none'; }}
-        }});
+        const rows = allRows();
+        const total = rows.length;
+        const pagination = document.getElementById('pagination');
+
+        if (val === 'all') {{
+            rows.forEach(r => r.style.display = '');
+            document.getElementById('row-count').textContent = `${{total}} relics`;
+            pagination.classList.remove('visible');
+            return;
+        }}
+
+        const limit = parseInt(val);
+        const totalPages = Math.ceil(total / limit);
+        currentPage = Math.min(currentPage, totalPages);
+        const from = (currentPage - 1) * limit;
+        const to   = currentPage * limit;
+
+        rows.forEach((r, i) => r.style.display = (i >= from && i < to) ? '' : 'none');
         document.getElementById('row-count').textContent =
-            limit >= rows.length ? `${{rows.length}} relics` : `${{shown}} of ${{rows.length}} relics`;
+            `${{Math.min(to, total) - from}} of ${{total}} relics`;
+        document.getElementById('pg-info').textContent =
+            `Page ${{currentPage}} of ${{totalPages}}`;
+        document.getElementById('btn-prev').disabled = currentPage <= 1;
+        document.getElementById('btn-next').disabled = currentPage >= totalPages;
+        pagination.classList.add('visible');
     }}
 
     function updateHeaderUI() {{
@@ -479,20 +517,35 @@ def show_relic_analysis(runs: list[dict]) -> None:
             return sortAsc ? cmp : -cmp;
         }}).forEach(r => tbody.appendChild(r));
         updateHeaderUI();
-        applyPageSize();
+        applyPage();
     }}
 
-    // Restore sort on every render (survives Streamlit rerenders)
     sortTable();
 
     document.querySelectorAll('th[data-key]').forEach(th => {{
         th.addEventListener('click', () => {{
             sortAsc = th.dataset.key === sortKey ? !sortAsc : false;
             sortKey = th.dataset.key;
+            currentPage = 1;
             sessionStorage.setItem(SS_KEY, sortKey);
             sessionStorage.setItem(SS_ASC, sortAsc);
             sortTable();
         }});
+    }});
+
+    document.getElementById('page-size').addEventListener('change', () => {{
+        currentPage = 1;
+        applyPage();
+    }});
+
+    document.getElementById('btn-prev').addEventListener('click', () => {{
+        currentPage--;
+        applyPage();
+    }});
+
+    document.getElementById('btn-next').addEventListener('click', () => {{
+        currentPage++;
+        applyPage();
     }});
 
     document.querySelectorAll('.rr').forEach(row => {{
@@ -510,8 +563,6 @@ def show_relic_analysis(runs: list[dict]) -> None:
         }});
         row.addEventListener('mouseleave', () => {{ tip.style.display = 'none'; }});
     }});
-
-    document.getElementById('page-size').addEventListener('change', applyPageSize);
 </script>
 </body></html>"""
 
