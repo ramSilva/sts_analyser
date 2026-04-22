@@ -76,6 +76,19 @@ def finished_act2(run: dict) -> bool:
     return len(run.get("map_point_history", [])) >= 3
 
 
+def count_elites(run: dict) -> int:
+    return sum(
+        1
+        for act in run.get("map_point_history", [])
+        for point in act
+        if point.get("map_point_type") == "elite"
+    )
+
+
+def count_rooms(run: dict) -> int:
+    return sum(len(act) for act in run.get("map_point_history", []))
+
+
 def format_duration(seconds: float) -> str:
     seconds = int(seconds)
     h, rem = divmod(seconds, 3600)
@@ -203,6 +216,42 @@ def show_total_time_truncated(runs: list[dict]) -> None:
     st.markdown(f"### Total time (truncated): **{format_duration(sum(times))}**")
 
 
+def show_elite_analysis(runs: list[dict]) -> None:
+    """Win rate by elite count bracket + elite density per outcome."""
+    wins_list = [r for r in runs if is_win(r)]
+    loss_list = [r for r in runs if not is_win(r)]
+
+    # ── Elite density ────────────────────────────────────────────────
+    st.subheader("Elite density (elites ÷ total rooms)")
+
+    def avg_density(run_list: list[dict]) -> float:
+        densities = [count_elites(r) / count_rooms(r) for r in run_list if count_rooms(r) > 0]
+        return sum(densities) / len(densities) if densities else 0.0
+
+    col1, col2 = st.columns(2)
+    col1.metric("Avg density — wins", f"{avg_density(wins_list):.1%}")
+    col2.metric("Avg density — losses", f"{avg_density(loss_list):.1%}")
+
+    st.divider()
+
+    # ── Win rate by bracket ──────────────────────────────────────────
+    st.subheader("Win rate by number of elites fought")
+
+    brackets: dict[str, list[dict]] = {"0": [], "1": [], "2": [], "3": [], "4+": []}
+    for r in runs:
+        n = count_elites(r)
+        key = str(n) if n <= 3 else "4+"
+        brackets[key].append(r)
+
+    for label, bracket_runs in brackets.items():
+        if not bracket_runs:
+            continue
+        wins = sum(1 for r in bracket_runs if is_win(r))
+        rate = wins / len(bracket_runs)
+        st.text(f"{label} elite(s) — {len(bracket_runs)} run(s)")
+        st.progress(rate, text=f"{rate:.1%} win rate")
+
+
 # ---------------------------------------------------------------------------
 # Metric registry
 # ---------------------------------------------------------------------------
@@ -214,6 +263,7 @@ METRICS: dict[str, callable] = {
     "Average time per run":                  show_average_time,
     "Total time spent on runs":              show_total_time,
     "Total time (truncated per outcome)":    show_total_time_truncated,
+    "Elite analysis":                        show_elite_analysis,
 }
 
 
