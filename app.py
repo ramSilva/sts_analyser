@@ -91,6 +91,14 @@ def count_rooms(run: dict) -> int:
     return sum(len(act) for act in run.get("map_point_history", []))
 
 
+def get_picked_relics(run: dict) -> list[str]:
+    """Return all relic IDs the player held during this run."""
+    players = run.get("players", [])
+    if not players:
+        return []
+    return [r["id"] for r in players[0].get("relics", []) if "id" in r]
+
+
 def format_duration(seconds: float) -> str:
     seconds = int(seconds)
     h, rem = divmod(seconds, 3600)
@@ -272,6 +280,40 @@ def show_elite_analysis(runs: list[dict]) -> None:
     st.altair_chart(chart, use_container_width=True)
 
 
+def show_relic_analysis(runs: list[dict]) -> None:
+    """Win rate for each relic picked, across all runs."""
+    from collections import defaultdict
+
+    relic_runs: dict[str, list[bool]] = defaultdict(list)
+    for r in runs:
+        won = is_win(r)
+        for relic_id in get_picked_relics(r):
+            relic_runs[relic_id].append(won)
+
+    if not relic_runs:
+        st.warning("No relic data found in the uploaded runs.")
+        return
+
+    rows = []
+    for relic_id, outcomes in relic_runs.items():
+        total = len(outcomes)
+        wins = sum(outcomes)
+        rows.append({
+            "Relic": relic_id.replace("RELIC.", "").replace("_", " ").title(),
+            "Runs": total,
+            "Wins": wins,
+            "Losses": total - wins,
+            "Win rate": f"{wins / total:.1%}",
+            "_sort": wins / total,
+        })
+
+    rows.sort(key=lambda x: x["_sort"], reverse=True)
+    for row in rows:
+        del row["_sort"]
+
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
 # ---------------------------------------------------------------------------
 # Metric registry
 # ---------------------------------------------------------------------------
@@ -284,6 +326,7 @@ METRICS: dict[str, callable] = {
     "Total time spent on runs":              show_total_time,
     "Total time (truncated per outcome)":    show_total_time_truncated,
     "Elite analysis":                        show_elite_analysis,
+    "Relic analysis":                        show_relic_analysis,
 }
 
 
