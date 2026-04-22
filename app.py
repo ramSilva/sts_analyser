@@ -363,6 +363,17 @@ def show_relic_analysis(runs: list[dict]) -> None:
 
     ignore_starting = st.toggle("Ignore starting relics", value=True)
 
+    # --- DEBUG: show raw relic_choices structure ---
+    if st.checkbox("Show relic_choices debug", value=False):
+        for r in runs:
+            for act in r.get("map_point_history", []):
+                for point in act:
+                    for ps in point.get("player_stats", []):
+                        rc_list = ps.get("relic_choices", [])
+                        if rc_list:
+                            st.json(rc_list[:2])
+                            raise StopIteration
+    # --------------------------------------------------
     offer_stats = get_relic_offer_stats(runs)
 
     relic_runs: dict[str, list[bool]] = defaultdict(list)
