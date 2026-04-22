@@ -280,6 +280,25 @@ def show_elite_analysis(runs: list[dict]) -> None:
     st.altair_chart(chart, use_container_width=True)
 
 
+def get_chosen_relic_ids(run: dict) -> set[str]:
+    """Relic IDs the player was offered as an explicit choice during the run."""
+    chosen = set()
+    for act in run.get("map_point_history", []):
+        for point in act:
+            for ps in point.get("player_stats", []):
+                for rc in ps.get("relic_choices", []):
+                    if "choice" in rc:
+                        chosen.add(rc["choice"])
+    return chosen
+
+
+def get_starting_relic_ids(run: dict) -> set[str]:
+    """Relics the player had that were never offered as a choice — true starting relics."""
+    chosen = get_chosen_relic_ids(run)
+    all_relics = {r["id"] for r in run.get("players", [{}])[0].get("relics", []) if "id" in r}
+    return all_relics - chosen
+
+
 def relic_id_to_slug(relic_id: str) -> str:
     return relic_id.replace("RELIC.", "").replace("_", "-").lower()
 
@@ -316,11 +335,15 @@ def show_relic_analysis(runs: list[dict]) -> None:
     import json as _json
     from collections import defaultdict
 
+    ignore_starting = st.toggle("Ignore starting relics", value=True)
+
     relic_runs: dict[str, list[bool]] = defaultdict(list)
     for r in runs:
         won = is_win(r)
+        starting = get_starting_relic_ids(r) if ignore_starting else set()
         for relic_id in get_picked_relics(r):
-            relic_runs[relic_id].append(won)
+            if relic_id not in starting:
+                relic_runs[relic_id].append(won)
 
     if not relic_runs:
         st.warning("No relic data found in the uploaded runs.")
