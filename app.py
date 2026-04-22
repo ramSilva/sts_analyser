@@ -396,6 +396,16 @@ def show_relic_analysis(runs: list[dict]) -> None:
     <div class="tip-name" id="tip-name"></div>
     <div class="tip-effect" id="tip-effect"></div>
 </div>
+<div style="margin-bottom:10px;display:flex;align-items:center;gap:8px;">
+    <label style="color:#a0a0b0;font-size:12px;text-transform:uppercase;letter-spacing:0.5px;">Show</label>
+    <select id="page-size" style="background:#262730;color:#fafafa;border:1px solid #3d3d4d;border-radius:6px;padding:4px 8px;font-size:13px;cursor:pointer;">
+        <option value="5">5</option>
+        <option value="10">10</option>
+        <option value="25">25</option>
+        <option value="all">All</option>
+    </select>
+    <span id="row-count" style="color:#a0a0b0;font-size:12px;margin-left:4px;"></span>
+</div>
 <table id="tbl">
     <thead><tr>
         <th data-key="name">Relic <span class="arrow">↕</span></th>
@@ -410,6 +420,20 @@ def show_relic_analysis(runs: list[dict]) -> None:
     const tip = document.getElementById('tip');
     let sortKey = 'rate', sortAsc = false;
 
+    function applyPageSize() {{
+        const val = document.getElementById('page-size').value;
+        const limit = val === 'all' ? Infinity : parseInt(val);
+        const rows = document.querySelectorAll('#tbl tbody tr');
+        let shown = 0;
+        rows.forEach(r => {{
+            if (shown < limit) {{ r.style.display = ''; shown++; }}
+            else {{ r.style.display = 'none'; }}
+        }});
+        const total = rows.length;
+        document.getElementById('row-count').textContent =
+            limit >= total ? `${{total}} relics` : `${{shown}} of ${{total}} relics`;
+    }}
+
     function sortTable(key, asc) {{
         const tbody = document.querySelector('#tbl tbody');
         const rows = Array.from(tbody.querySelectorAll('tr'));
@@ -420,7 +444,11 @@ def show_relic_analysis(runs: list[dict]) -> None:
             return asc ? cmp : -cmp;
         }});
         rows.forEach(r => tbody.appendChild(r));
+        applyPageSize();
     }}
+
+    document.getElementById('page-size').addEventListener('change', applyPageSize);
+    applyPageSize();
 
     document.querySelectorAll('th[data-key]').forEach(th => {{
         th.addEventListener('click', () => {{
