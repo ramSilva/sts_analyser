@@ -312,6 +312,7 @@ def get_elite_encounter_stats(runs: list[dict]) -> list[dict]:
             "avg_turns": sum(s["turns"]) / len(s["turns"]) if s["turns"] else 0,
             "win_rate":  s["wins"] / total_runs if total_runs else 0,
             "total_runs": total_runs,
+            "acts":       ", ".join(str(a) for a in sorted(s["acts"])),
         })
 
     return sorted(result, key=lambda x: x["count"], reverse=True)
