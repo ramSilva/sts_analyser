@@ -251,18 +251,22 @@ def encounter_id_to_img(enc_id: str) -> str:
 
 @st.cache_data(ttl=86400)
 def fetch_encounter_info(enc_id: str) -> dict:
-    """Fetch monster image and name from spirewiki.com/monsters/."""
+    """Fetch move names from spirewiki.com/monsters/."""
     import urllib.request as _ur
     slug = encounter_id_to_slug(enc_id)
-    img_name = encounter_id_to_img(enc_id)
-    image_url = f"https://spirewiki.com/images/monsters/{img_name}.png"
     page_url = f"https://spirewiki.com/monsters/{slug}"
     try:
         req = _ur.Request(page_url, headers={"User-Agent": "STS2Analyser/1.0"})
-        _ur.urlopen(req, timeout=5)          # just confirm the page exists
+        html = _ur.urlopen(req, timeout=5).read().decode()
+        m = re.search(r"Moves\s*(.*?)(?:---|Data extracted)", html, re.DOTALL)
+        if m:
+            chunk = re.sub(r"<[^>]+>", " ", m.group(1))
+            moves = re.sub(r"[:\s]+", " ", chunk).strip().strip(",").strip()
+        else:
+            moves = ""
     except Exception:
-        image_url = ""                       # page not found — no image
-    return {"image": image_url}
+        moves = ""
+    return {"moves": moves}
 
 
 def get_elite_encounter_stats(runs: list[dict]) -> list[dict]:
@@ -381,7 +385,7 @@ def show_elite_analysis(runs: list[dict]) -> None:
         rows_html = ""
         for row in enc_stats:
             info = fetch_encounter_info(row["enc_id"])
-            tip_data = {"name": row["name"], "image": info["image"]}
+            tip_data = {"name": row["name"], "moves": info["moves"]}
             tip_b64 = _b64.b64encode(_json.dumps(tip_data).encode()).decode()
             rows_html += (
                 f'''<tr class="rr" data-tip="{tip_b64}"'''
@@ -413,12 +417,12 @@ def show_elite_analysis(runs: list[dict]) -> None:
     #tip {{ display:none; position:fixed; background:#1e2130; color:#e0e0e0;
             border:1px solid #3d3d5c; border-radius:10px; padding:14px; z-index:9999;
             width:200px; box-shadow:0 6px 24px rgba(0,0,0,0.6); pointer-events:none; }}
-    #tip img {{ width:96px; height:96px; object-fit:contain; display:block; margin:0 auto 10px; }}
-    #tip .tip-name {{ font-weight:700; font-size:14px; color:#fff; text-align:center; }}
+    #tip .tip-name {{ font-weight:700; font-size:14px; color:#fff; text-align:center; margin-bottom:4px; }}
+    #tip .tip-moves {{ font-size:12px; color:#9ab; line-height:1.5; }}
     </style></head><body>
     <div id="tip">
-        <img id="tip-img" src="" onerror="this.style.display='none'">
         <div class="tip-name" id="tip-name"></div>
+        <div class="tip-moves" id="tip-moves"></div>
     </div>
     <table id="tbl">
         <thead><tr>
@@ -467,9 +471,8 @@ def show_elite_analysis(runs: list[dict]) -> None:
         document.querySelectorAll('.rr').forEach(row => {{
             row.addEventListener('mouseenter', () => {{
                 const d = JSON.parse(atob(row.dataset.tip));
-                document.getElementById('tip-img').src = d.image;
-                document.getElementById('tip-img').style.display = d.image ? 'block' : 'none';
                 document.getElementById('tip-name').textContent = d.name;
+                document.getElementById('tip-moves').textContent = d.moves ? 'Moves: ' + d.moves : '';
                 tip.style.display = 'block';
             }});
             row.addEventListener('mousemove', e => {{
