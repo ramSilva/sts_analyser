@@ -293,7 +293,11 @@ def get_chosen_relic_ids(run: dict) -> set[str]:
 
 
 def get_relic_offer_stats(runs: list[dict]) -> dict[str, dict]:
-    """For each relic, count how many times it was offered and how many times picked."""
+    """For each relic, count how many times it was offered and how many times picked.
+
+    Each entry in relic_choices is one offered relic:
+      {"choice": "RELIC.X", "was_picked": true/false}
+    """
     from collections import defaultdict
     offered: dict[str, int] = defaultdict(int)
     picked: dict[str, int] = defaultdict(int)
@@ -302,16 +306,12 @@ def get_relic_offer_stats(runs: list[dict]) -> dict[str, dict]:
             for point in act:
                 for ps in point.get("player_stats", []):
                     for rc in ps.get("relic_choices", []):
-                        choice = rc.get("choice")
-                        # Collect all options from whichever field is present
-                        all_opts = (
-                            rc.get("choices")
-                            or ([choice] + rc.get("not_picked", []) if choice else [])
-                        )
-                        for relic in all_opts:
-                            offered[relic] += 1
-                        if choice:
-                            picked[choice] += 1
+                        relic_id = rc.get("choice")
+                        if not relic_id:
+                            continue
+                        offered[relic_id] += 1
+                        if rc.get("was_picked"):
+                            picked[relic_id] += 1
     return {
         relic: {"offered": offered[relic], "picked": picked.get(relic, 0)}
         for relic in offered
@@ -363,17 +363,6 @@ def show_relic_analysis(runs: list[dict]) -> None:
 
     ignore_starting = st.toggle("Ignore starting relics", value=True)
 
-    # --- DEBUG: show raw relic_choices structure ---
-    if st.checkbox("Show relic_choices debug", value=False):
-        for r in runs:
-            for act in r.get("map_point_history", []):
-                for point in act:
-                    for ps in point.get("player_stats", []):
-                        rc_list = ps.get("relic_choices", [])
-                        if rc_list:
-                            st.json(rc_list[:2])
-                            raise StopIteration
-    # --------------------------------------------------
     offer_stats = get_relic_offer_stats(runs)
 
     relic_runs: dict[str, list[bool]] = defaultdict(list)
