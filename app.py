@@ -941,21 +941,25 @@ def card_id_to_name(card_id: str) -> str:
 
 def get_deck_at_encounter(run: dict, target_enc_id: str) -> tuple[list[str], bool]:
     """
-    Walk map_point_history in order, accumulating card adds/removes at each
-    room BEFORE the target encounter. Returns (card_id_list, found).
+    Reconstruct the deck at the moment a specific encounter is reached.
 
-    Tries:
-      1. Full deck snapshot in player_stats[0].cards / .deck at the encounter point.
-      2. Incremental tracking via player_stats[0].card_choices / .cards_removed and
-         rooms[*].card_choices at every preceding point.
-      3. Starting deck from players[0].starting_deck if present.
+    Walks map_point_history in chronological order. The player_stats for each
+    room describe what happened AFTER that room (rewards, gains, removals), so
+    we accumulate those changes only for rooms that come BEFORE the target
+    encounter.  When we reach the target we stop — the Counter at that point
+    is the deck the player had going into the fight.
+
+    Card gains:    player_stats[0].cards_gained  — list of {"id": "CARD.X", ...}
+    Card removals: player_stats[0].cards_removed — list of {"id": "CARD.X", ...}
+    Starting deck: players[0].starting_deck      — list of {"id": "CARD.X", ...}
+                   (seeded at the beginning if the field is present)
     """
     from collections import Counter
 
-    player  = run.get("players", [{}])[0]
+    player = run.get("players", [{}])[0]
     deck: Counter = Counter()
 
-    # Seed with a starting deck if the run file records one
+    # Seed with starting deck if the run records one
     for card in player.get("starting_deck", []):
         cid = (card.get("id") if isinstance(card, dict) else card) or ""
         if cid:
@@ -965,48 +969,25 @@ def get_deck_at_encounter(run: dict, target_enc_id: str) -> tuple[list[str], boo
     for act in run.get("map_point_history", []):
         for point in act:
             rooms   = point.get("rooms", [])
-            enc_id  = rooms[0].get("model_id", "") if rooms else ""
+            enc_id  = (rooms[0].get("model_id", "") if rooms else "")
             ps_list = point.get("player_stats", [])
             ps      = ps_list[0] if ps_list else {}
 
             if enc_id == target_enc_id:
-                # Prefer a full deck snapshot recorded at this point
-                snapshot = ps.get("cards") or ps.get("deck") or []
-                if snapshot:
-                    deck = Counter()
-                    for card in snapshot:
-                        cid = (card.get("id") if isinstance(card, dict) else card) or ""
-                        if cid:
-                            deck[cid] += 1
                 found = True
                 break
 
-            # ── Accumulate card changes BEFORE this encounter ────────────
-            # Card choices (rewards, events)
-            for cc in ps.get("card_choices", []):
-                if isinstance(cc, dict):
-                    if cc.get("was_picked"):
-                        cid = cc.get("choice") or cc.get("card_id") or cc.get("id") or ""
-                        if cid:
-                            deck[cid] += 1
-                elif isinstance(cc, str):
-                    deck[cc] += 1
+            # Cards added to deck as reward/result of this room
+            for card in ps.get("cards_gained", []):
+                cid = (card.get("id") if isinstance(card, dict) else card) or ""
+                if cid:
+                    deck[cid] += 1
 
-            # Card choices stored on rooms instead of player_stats
-            for room in rooms:
-                for cc in room.get("card_choices", []):
-                    if isinstance(cc, dict) and cc.get("was_picked"):
-                        cid = cc.get("choice") or cc.get("card_id") or cc.get("id") or ""
-                        if cid:
-                            deck[cid] += 1
-
-            # Cards removed (shop / purge events)
+            # Cards removed/purged/transformed after this room
             for card in ps.get("cards_removed", []):
                 cid = (card.get("id") if isinstance(card, dict) else card) or ""
-                if cid in deck:
-                    deck[cid] = max(0, deck[cid] - 1)
-                    if deck[cid] == 0:
-                        del deck[cid]
+                if cid and deck[cid] > 0:
+                    deck[cid] -= 1
 
         if found:
             break
@@ -1049,27 +1030,9 @@ def show_encounter_detail(enc_id: str, enc_type: str, runs: list[dict]) -> None:
 
     if not card_stats:
         st.warning(
-            f"No card data found across {runs_found} run(s) with this encounter."
+            f"No card data found across {runs_found} run(s) with this encounter. "
+            "The run files may not contain card gain/removal tracking."
         )
-        with st.expander("\U0001f50d Debug: raw run structure (first run with this encounter)"):
-            import json as _json
-            for _run in runs:
-                _pts = []
-                for _act in _run.get("map_point_history", []):
-                    for _pt in _act:
-                        _rooms = _pt.get("rooms", [])
-                        _eid = _rooms[0].get("model_id", "") if _rooms else ""
-                        _pts.append(_pt)
-                        if _eid == enc_id:
-                            break
-                    else:
-                        continue
-                    break
-                st.write("**players[0] keys:**", list(_run.get("players", [{}])[0].keys()))
-                st.write(f"**Last 3 points before/at encounter ({len(_pts)} total):**")
-                for _pt in _pts[-3:]:
-                    st.json(_json.loads(_json.dumps(_pt, default=str)))
-                break
         return
 
     st.caption(f"Across **{runs_found}** run(s) that included this encounter.")
