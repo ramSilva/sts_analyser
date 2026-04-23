@@ -351,7 +351,7 @@ def get_elite_encounter_stats(runs: list[dict]) -> list[dict]:
         result.append({
             "enc_id":    enc_id,
             "name":      encounter_id_to_name(enc_id),
-            "count":     s["count"],
+            "count":     total_runs,
             "avg_dmg":   sum(s["dmg"]) / len(s["dmg"]) if s["dmg"] else 0,
             "avg_turns": sum(s["turns"]) / len(s["turns"]) if s["turns"] else 0,
             "win_rate":  s["wins"] / total_runs if total_runs else 0,
@@ -402,7 +402,7 @@ def get_boss_encounter_stats(runs: list[dict]) -> list[dict]:
         result.append({
             "enc_id":     enc_id,
             "name":       encounter_id_to_name(enc_id),
-            "count":      s["count"],
+            "count":      total_runs,
             "avg_dmg":    sum(s["dmg"]) / len(s["dmg"]) if s["dmg"] else 0,
             "avg_turns":  sum(s["turns"]) / len(s["turns"]) if s["turns"] else 0,
             "win_rate":   s["wins"] / total_runs if total_runs else 0,
