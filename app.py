@@ -1049,11 +1049,27 @@ def show_encounter_detail(enc_id: str, enc_type: str, runs: list[dict]) -> None:
 
     if not card_stats:
         st.warning(
-            f"No card data found across {runs_found} run(s) with this encounter. "
-            "The run files may not record card choices in a recognised field "
-            "(tried: player_stats.card_choices, player_stats.cards_removed, "
-            "rooms.card_choices, players.starting_deck)."
+            f"No card data found across {runs_found} run(s) with this encounter."
         )
+        with st.expander("\U0001f50d Debug: raw run structure (first run with this encounter)"):
+            import json as _json
+            for _run in runs:
+                _pts = []
+                for _act in _run.get("map_point_history", []):
+                    for _pt in _act:
+                        _rooms = _pt.get("rooms", [])
+                        _eid = _rooms[0].get("model_id", "") if _rooms else ""
+                        _pts.append(_pt)
+                        if _eid == enc_id:
+                            break
+                    else:
+                        continue
+                    break
+                st.write("**players[0] keys:**", list(_run.get("players", [{}])[0].keys()))
+                st.write(f"**Last 3 points before/at encounter ({len(_pts)} total):**")
+                for _pt in _pts[-3:]:
+                    st.json(_json.loads(_json.dumps(_pt, default=str)))
+                break
         return
 
     st.caption(f"Across **{runs_found}** run(s) that included this encounter.")
