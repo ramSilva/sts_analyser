@@ -805,9 +805,11 @@ def show_encounter_detail(enc_id: str, enc_type: str, runs: list[dict]) -> None:
     total_runs_with_enc = len(counted_runs)
     win_rate = wins_count / total_runs_with_enc if total_runs_with_enc else 0
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Times Fought", times_fought)
-    col2.metric("Win Rate", f"{win_rate:.1%}")
+    col2.metric("Wins",         wins_count)
+    col3.metric("Losses",       total_runs_with_enc - wins_count)
+    col4.metric("Win Rate",     f"{win_rate:.1%}")
 
     st.divider()
     st.subheader("Card win rate at this encounter")
