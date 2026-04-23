@@ -18,10 +18,35 @@ import altair as alt
 
 import streamlit as st
 
-_encounter_table = st.components.v1.declare_component(
-    "encounter_table",
-    path=os.path.join(os.path.dirname(__file__), "components/encounter_table"),
+_data_table = st.components.v1.declare_component(
+    "data_table",
+    path=os.path.join(os.path.dirname(__file__), "components/data_table"),
 )
+
+
+def render_table(
+    rows: list[dict],
+    columns: list[dict],
+    *,
+    default_sort: str = "",
+    clickable: bool = False,
+    key: str = "table",
+) -> dict | None:
+    """Render the shared dark-themed data table component.
+
+    Each column dict: {"key": str, "label": str, "sort_key": str (optional)}.
+    Each row dict: normal column data + optional "_tooltip" and hidden sort fields.
+    "_tooltip": {"name": str, "image": str|None, "body": str}
+    Returns the clicked row dict (non-_ keys only) when clickable=True, else None.
+    """
+    return _data_table(
+        columns=columns,
+        rows=rows,
+        default_sort=default_sort,
+        clickable=clickable,
+        key=key,
+        default=None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -452,23 +477,34 @@ def show_elite_analysis(runs: list[dict]) -> None:
         st.info("No elite encounter data found.")
         return
 
+    _ELITE_COLS = [
+        {"key": "name",      "label": "Encounter"},
+        {"key": "count",     "label": "Times Encountered"},
+        {"key": "avg_dmg",   "label": "Avg Dmg Taken"},
+        {"key": "avg_turns", "label": "Avg Turns"},
+        {"key": "win_rate",  "label": "Win Rate", "sort_key": "_wr"},
+        {"key": "acts",      "label": "Act"},
+    ]
     with st.spinner("Fetching elite info from wiki..."):
-        enc_stats_data = []
+        table_rows = []
         for row in enc_stats:
             info = fetch_encounter_info(row["enc_id"])
-            enc_stats_data.append({
-                "enc_id":    row["enc_id"],
-                "enc_type":  row["enc_type"],
-                "name":      row["name"],
-                "count":     row["count"],
-                "avg_dmg":   f"{row['avg_dmg']:.1f}",
-                "avg_turns": f"{row['avg_turns']:.1f}",
-                "win_rate":  f"{row['win_rate']:.1%}",
-                "acts":      row["acts"],
-                "moves":     info["moves"],
+            table_rows.append({
+                "name":     row["name"],
+                "count":    row["count"],
+                "avg_dmg":  round(row["avg_dmg"], 1),
+                "avg_turns": round(row["avg_turns"], 1),
+                "win_rate": f"{row['win_rate']:.1%}",
+                "_wr":      row["win_rate"],
+                "acts":     row["acts"],
+                "enc_id":   row["enc_id"],
+                "enc_type": row["enc_type"],
+                "_tooltip": {"name": row["name"], "image": None,
+                             "body": ("Moves: " + info["moves"]) if info["moves"] else ""},
             })
 
-    selected = _encounter_table(enc_stats=enc_stats_data, key="elite_table", default=None)
+    selected = render_table(table_rows, _ELITE_COLS, default_sort="count",
+                            clickable=True, key="elite_table")
     if selected:
         st.query_params["enc_detail"] = selected["enc_id"]
         st.query_params["enc_type"]   = selected["enc_type"]
@@ -598,204 +634,32 @@ def show_relic_analysis(runs: list[dict]) -> None:
 
     rows.sort(key=lambda x: x["rate"], reverse=True)
 
-    rows_html = ""
+    _RELIC_COLS = [
+        {"key": "name",          "label": "Relic"},
+        {"key": "total",         "label": "Runs"},
+        {"key": "wins",          "label": "Wins"},
+        {"key": "losses",        "label": "Losses"},
+        {"key": "rate_str",      "label": "Win Rate",  "sort_key": "rate"},
+        {"key": "offered_str",   "label": "Offered"},
+        {"key": "picked_str",    "label": "Picked"},
+        {"key": "pick_rate_str", "label": "Pick Rate", "sort_key": "pick_rate"},
+    ]
+    table_rows = []
     for row in rows:
-        tip_b64 = base64.b64encode(
-            _json.dumps({"name": row["name"], "image": row["image"], "effect": row["effect"]}).encode()
-        ).decode()
-        rows_html += (
-            f'''<tr class="rr" data-tip="{tip_b64}"'''
-            f''' data-name="{row["name"]}" data-total="{row["total"]}"'''
-            f''' data-wins="{row["wins"]}" data-losses="{row["losses"]}"'''
-            f''' data-rate="{row["rate"]}" data-offered="{row["n_offered"]}"'''
-            f''' data-picked="{row["n_picked"]}" data-pick_rate="{row["pick_rate"]}">'''
-            f'''<td>{row["name"]}</td><td>{row["total"]}</td>'''
-            f'''<td>{row["wins"]}</td><td>{row["losses"]}</td>'''
-            f'''<td>{row["rate_str"]}</td>'''
-            f'''<td>{row["n_offered"] or "—"}</td>'''
-            f'''<td>{row["n_picked"] if row["n_offered"] else "—"}</td>'''
-            f'''<td>{row["pick_rate_str"]}</td></tr>'''
-        )
-
-    height = max(500, 80 + len(rows) * 42)
-
-    html = f"""<!DOCTYPE html>
-<html>
-<head><style>
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ background: #0e1117; color: #fafafa; font-family: "Source Sans Pro", sans-serif; font-size: 14px; }}
-    table {{ width: 100%; border-collapse: collapse; }}
-    thead tr {{ background: #262730; }}
-    th {{
-        padding: 10px 14px; text-align: left; font-weight: 600; color: #a0a0b0; font-size: 12px;
-        text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #3d3d4d;
-        cursor: pointer; user-select: none; white-space: nowrap;
-    }}
-    th:hover {{ color: #ffffff; }}
-    th.sorted {{ color: #7eb8f7; }}
-    th .arrow {{ margin-left: 5px; opacity: 0.5; }}
-    th.sorted .arrow {{ opacity: 1; }}
-    td {{ padding: 9px 14px; border-bottom: 1px solid #1e1e2e; }}
-    .rr:hover {{ background: #1e2130; cursor: default; }}
-    .controls {{ display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }}
-    .controls label {{ color: #a0a0b0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }}
-    select {{
-        background: #262730; color: #fafafa; border: 1px solid #3d3d4d;
-        border-radius: 6px; padding: 4px 8px; font-size: 13px; cursor: pointer;
-    }}
-    .pagination {{ display: none; align-items: center; gap: 8px; margin-top: 10px; }}
-    .pagination.visible {{ display: flex; }}
-    .pg-btn {{
-        background: #262730; color: #fafafa; border: 1px solid #3d3d4d;
-        border-radius: 6px; padding: 4px 12px; font-size: 13px; cursor: pointer;
-    }}
-    .pg-btn:hover:not(:disabled) {{ background: #3d3d5c; }}
-    .pg-btn:disabled {{ opacity: 0.35; cursor: default; }}
-    .pg-info {{ color: #a0a0b0; font-size: 12px; }}
-    #tip {{
-        display: none; position: fixed; background: #1e2130; color: #e0e0e0;
-        border: 1px solid #3d3d5c; border-radius: 10px; padding: 14px;
-        z-index: 9999; width: 240px; box-shadow: 0 6px 24px rgba(0,0,0,0.6); pointer-events: none;
-    }}
-    #tip img {{ width: 72px; height: 72px; object-fit: contain; display: block; margin: 0 auto 10px; }}
-    #tip .tip-name {{ font-weight: 700; font-size: 14px; color: #fff; text-align: center; margin-bottom: 6px; }}
-    #tip .tip-effect {{ font-size: 12px; line-height: 1.6; color: #9ab; }}
-</style></head>
-<body>
-<div id="tip">
-    <img id="tip-img" src="" onerror="this.style.display='none'">
-    <div class="tip-name" id="tip-name"></div>
-    <div class="tip-effect" id="tip-effect"></div>
-</div>
-<div class="controls">
-    <label>Show</label>
-    <select id="page-size">
-        <option value="5">5</option>
-        <option value="10">10</option>
-        <option value="25">25</option>
-        <option value="all">All</option>
-    </select>
-    <span id="row-count" style="color:#a0a0b0;font-size:12px;"></span>
-</div>
-<table id="tbl">
-    <thead><tr>
-        <th data-key="name">Relic <span class="arrow">↕</span></th>
-        <th data-key="total">Runs <span class="arrow">↕</span></th>
-        <th data-key="wins">Wins <span class="arrow">↕</span></th>
-        <th data-key="losses">Losses <span class="arrow">↕</span></th>
-        <th data-key="rate">Win Rate <span class="arrow">↕</span></th>
-        <th data-key="offered">Offered <span class="arrow">↕</span></th>
-        <th data-key="picked">Picked <span class="arrow">↕</span></th>
-        <th data-key="pick_rate">Pick Rate <span class="arrow">↕</span></th>
-    </tr></thead>
-    <tbody>{rows_html}</tbody>
-</table>
-<div class="pagination" id="pagination">
-    <button class="pg-btn" id="btn-prev">← Prev</button>
-    <span class="pg-info" id="pg-info"></span>
-    <button class="pg-btn" id="btn-next">Next →</button>
-</div>
-<script>
-    const tip = document.getElementById('tip');
-    const SS_KEY = 'relic_sort_key';
-    const SS_ASC = 'relic_sort_asc';
-    let sortKey = sessionStorage.getItem(SS_KEY) || 'rate';
-    let sortAsc  = sessionStorage.getItem(SS_ASC) === 'true';
-    let currentPage = 1;
-
-    function allRows() {{ return Array.from(document.querySelectorAll('#tbl tbody tr')); }}
-
-    function applyPage() {{
-        const val = document.getElementById('page-size').value;
-        const rows = allRows();
-        const total = rows.length;
-        const pagination = document.getElementById('pagination');
-        if (val === 'all') {{
-            rows.forEach(r => r.style.display = '');
-            document.getElementById('row-count').textContent = `${{total}} relics`;
-            pagination.classList.remove('visible');
-            return;
-        }}
-        const limit = parseInt(val);
-        const totalPages = Math.ceil(total / limit);
-        currentPage = Math.min(currentPage, totalPages);
-        const from = (currentPage - 1) * limit;
-        const to   = currentPage * limit;
-        rows.forEach((r, i) => r.style.display = (i >= from && i < to) ? '' : 'none');
-        document.getElementById('row-count').textContent =
-            `${{Math.min(to, total) - from}} of ${{total}} relics`;
-        document.getElementById('pg-info').textContent = `Page ${{currentPage}} of ${{totalPages}}`;
-        document.getElementById('btn-prev').disabled = currentPage <= 1;
-        document.getElementById('btn-next').disabled = currentPage >= totalPages;
-        pagination.classList.add('visible');
-    }}
-
-    function updateHeaderUI() {{
-        document.querySelectorAll('th[data-key]').forEach(h => {{
-            h.classList.remove('sorted');
-            h.querySelector('.arrow').textContent = '↕';
-        }});
-        const active = document.querySelector(`th[data-key="${{sortKey}}"]`);
-        if (active) {{
-            active.classList.add('sorted');
-            active.querySelector('.arrow').textContent = sortAsc ? '↑' : '↓';
-        }}
-    }}
-
-    function sortTable() {{
-        const tbody = document.querySelector('#tbl tbody');
-        Array.from(tbody.querySelectorAll('tr')).sort((a, b) => {{
-            const av = a.dataset[sortKey], bv = b.dataset[sortKey];
-            const an = parseFloat(av), bn = parseFloat(bv);
-            const cmp = isNaN(an) ? av.localeCompare(bv) : an - bn;
-            return sortAsc ? cmp : -cmp;
-        }}).forEach(r => tbody.appendChild(r));
-        updateHeaderUI();
-        applyPage();
-    }}
-
-    sortTable();
-
-    document.querySelectorAll('th[data-key]').forEach(th => {{
-        th.addEventListener('click', () => {{
-            sortAsc = th.dataset.key === sortKey ? !sortAsc : false;
-            sortKey = th.dataset.key;
-            currentPage = 1;
-            sessionStorage.setItem(SS_KEY, sortKey);
-            sessionStorage.setItem(SS_ASC, sortAsc);
-            sortTable();
-        }});
-    }});
-
-    document.getElementById('page-size').addEventListener('change', () => {{
-        currentPage = 1; applyPage();
-    }});
-    document.getElementById('btn-prev').addEventListener('click', () => {{
-        currentPage--; applyPage();
-    }});
-    document.getElementById('btn-next').addEventListener('click', () => {{
-        currentPage++; applyPage();
-    }});
-
-    document.querySelectorAll('.rr').forEach(row => {{
-        row.addEventListener('mouseenter', () => {{
-            const d = JSON.parse(atob(row.dataset.tip));
-            document.getElementById('tip-img').src = d.image;
-            document.getElementById('tip-img').style.display = 'block';
-            document.getElementById('tip-name').textContent = d.name;
-            document.getElementById('tip-effect').textContent = d.effect;
-            tip.style.display = 'block';
-        }});
-        row.addEventListener('mousemove', e => {{
-            tip.style.left = (e.clientX + 16) + 'px';
-            tip.style.top  = (e.clientY + 16) + 'px';
-        }});
-        row.addEventListener('mouseleave', () => {{ tip.style.display = 'none'; }});
-    }});
-</script>
-</body></html>"""
-
-    st.components.v1.html(html, height=height, scrolling=True)
+        table_rows.append({
+            "name":          row["name"],
+            "total":         row["total"],
+            "wins":          row["wins"],
+            "losses":        row["losses"],
+            "rate_str":      row["rate_str"],
+            "rate":          row["rate"],
+            "offered_str":   row["n_offered"] or "—",
+            "picked_str":    row["n_picked"] if row["n_offered"] else "—",
+            "pick_rate_str": row["pick_rate_str"],
+            "pick_rate":     row["pick_rate"] if row["pick_rate"] >= 0 else -1,
+            "_tooltip":      {"name": row["name"], "image": row["image"], "body": row["effect"]},
+        })
+    render_table(table_rows, _RELIC_COLS, default_sort="rate_str", key="relic_table")
 
 # ---------------------------------------------------------------------------
 # Metric registry
@@ -804,128 +668,47 @@ def show_relic_analysis(runs: list[dict]) -> None:
 def show_boss_analysis(runs: list[dict]) -> None:
     """Boss encounter breakdown."""
 
-    # ── Per-encounter table ──────────────────────────────────────────────
     st.divider()
-    st.subheader("Elite encounter breakdown")
+    st.subheader("Boss encounter breakdown")
 
     enc_stats = get_boss_encounter_stats(runs)
     if not enc_stats:
         st.info("No boss encounter data found.")
         return
 
+    _BOSS_COLS = [
+        {"key": "name",      "label": "Encounter"},
+        {"key": "count",     "label": "Times Encountered"},
+        {"key": "avg_dmg",   "label": "Avg Dmg Taken"},
+        {"key": "avg_turns", "label": "Avg Turns"},
+        {"key": "win_rate",  "label": "Win Rate", "sort_key": "_wr"},
+        {"key": "acts",      "label": "Act"},
+    ]
     with st.spinner("Fetching boss info from wiki..."):
-        import base64 as _b64, json as _json
-        rows_html = ""
+        table_rows = []
         for row in enc_stats:
             info = fetch_encounter_info(row["enc_id"])
-            tip_data = {"name": row["name"], "moves": info["moves"]}
-            tip_b64 = _b64.b64encode(_json.dumps(tip_data).encode()).decode()
-            rows_html += (
-                f'''<tr class="rr" data-tip="{tip_b64}"'''
-                f''' data-name="{row["name"]}" data-count="{row["count"]}"'''
-                f''' data-avg_dmg="{row["avg_dmg"]:.1f}" data-avg_turns="{row["avg_turns"]:.1f}"'''
-                f''' data-win_rate="{row["win_rate"]}" data-acts="{row["acts"]}" data-enc-id="{row["enc_id"]}" data-enc-type="{row["enc_type"]}">'''
-                f'''<td>{row["name"]}</td>'''
-                f'''<td>{row["count"]}</td>'''
-                f'''<td>{row["avg_dmg"]:.1f}</td>'''
-                f'''<td>{row["avg_turns"]:.1f}</td>'''
-                f'''<td>{row["win_rate"]:.1%}</td>'''
-                f'''<td>{row["acts"]}</td></tr>'''
-            )
+            table_rows.append({
+                "name":     row["name"],
+                "count":    row["count"],
+                "avg_dmg":  round(row["avg_dmg"], 1),
+                "avg_turns": round(row["avg_turns"], 1),
+                "win_rate": f"{row['win_rate']:.1%}",
+                "_wr":      row["win_rate"],
+                "acts":     row["acts"],
+                "enc_id":   row["enc_id"],
+                "enc_type": row["enc_type"],
+                "_tooltip": {"name": row["name"], "image": None,
+                             "body": ("Moves: " + info["moves"]) if info["moves"] else ""},
+            })
 
-    height = max(400, 80 + len(enc_stats) * 42)
-    html = f"""<!DOCTYPE html><html><head><style>
-    * {{ box-sizing:border-box; margin:0; padding:0; }}
-    body {{ background:#0e1117; color:#fafafa; font-family:"Source Sans Pro",sans-serif; font-size:14px; }}
-    table {{ width:100%; border-collapse:collapse; }}
-    thead tr {{ background:#262730; }}
-    th {{ padding:10px 14px; text-align:left; font-weight:600; color:#a0a0b0; font-size:12px;
-          text-transform:uppercase; letter-spacing:0.5px; border-bottom:1px solid #3d3d4d;
-          cursor:pointer; user-select:none; white-space:nowrap; }}
-    th:hover {{ color:#fff; }}
-    th.sorted {{ color:#7eb8f7; }}
-    th .arrow {{ margin-left:5px; opacity:0.5; }}
-    th.sorted .arrow {{ opacity:1; }}
-    td {{ padding:9px 14px; border-bottom:1px solid #1e1e2e; }}
-    .rr:hover {{ background:#1e2130; cursor:pointer; }}
-    #tip {{ display:none; position:fixed; background:#1e2130; color:#e0e0e0;
-            border:1px solid #3d3d5c; border-radius:10px; padding:14px; z-index:9999;
-            width:200px; box-shadow:0 6px 24px rgba(0,0,0,0.6); pointer-events:none; }}
-    #tip .tip-name {{ font-weight:700; font-size:14px; color:#fff; text-align:center; margin-bottom:4px; }}
-    #tip .tip-moves {{ font-size:12px; color:#9ab; line-height:1.5; }}
-    </style></head><body>
-    <div id="tip">
-        <div class="tip-name" id="tip-name"></div>
-        <div class="tip-moves" id="tip-moves"></div>
-    </div>
-    <table id="tbl">
-        <thead><tr>
-            <th data-key="name">Encounter <span class="arrow">↕</span></th>
-            <th data-key="count">Times Encountered <span class="arrow">↕</span></th>
-            <th data-key="avg_dmg">Avg Dmg Taken <span class="arrow">↕</span></th>
-            <th data-key="avg_turns">Avg Turns <span class="arrow">↕</span></th>
-            <th data-key="win_rate">Win Rate <span class="arrow">↕</span></th>
-            <th data-key="acts">Act <span class="arrow">↕</span></th>
-        </tr></thead>
-        <tbody>{rows_html}</tbody>
-    </table>
-    <script>
-        const tip = document.getElementById('tip');
-        let sortKey = 'count', sortAsc = false;
+    selected = render_table(table_rows, _BOSS_COLS, default_sort="count",
+                            clickable=True, key="boss_table")
+    if selected:
+        st.query_params["enc_detail"] = selected["enc_id"]
+        st.query_params["enc_type"]   = selected["enc_type"]
+        st.rerun()
 
-        function updateHeaderUI() {{
-            document.querySelectorAll('th[data-key]').forEach(h => {{
-                h.classList.remove('sorted');
-                h.querySelector('.arrow').textContent = '↕';
-            }});
-            const a = document.querySelector(`th[data-key="${{sortKey}}"]`);
-            if (a) {{ a.classList.add('sorted'); a.querySelector('.arrow').textContent = sortAsc ? '↑' : '↓'; }}
-        }}
-
-        function sortTable() {{
-            const tbody = document.querySelector('#tbl tbody');
-            Array.from(tbody.querySelectorAll('tr')).sort((a, b) => {{
-                const av = a.dataset[sortKey], bv = b.dataset[sortKey];
-                const an = parseFloat(av), bn = parseFloat(bv);
-                const cmp = isNaN(an) ? av.localeCompare(bv) : an - bn;
-                return sortAsc ? cmp : -cmp;
-            }}).forEach(r => tbody.appendChild(r));
-            updateHeaderUI();
-        }}
-
-        sortTable();
-
-        document.querySelectorAll('th[data-key]').forEach(th => {{
-            th.addEventListener('click', () => {{
-                sortAsc = th.dataset.key === sortKey ? !sortAsc : false;
-                sortKey = th.dataset.key;
-                sortTable();
-            }});
-        }});
-
-        document.querySelectorAll('.rr').forEach(row => {{
-            row.addEventListener('mouseenter', () => {{
-                const d = JSON.parse(atob(row.dataset.tip));
-                document.getElementById('tip-name').textContent = d.name;
-                document.getElementById('tip-moves').textContent = d.moves ? 'Moves: ' + d.moves : '';
-                tip.style.display = 'block';
-            }});
-            row.addEventListener('mousemove', e => {{
-                tip.style.left = (e.clientX + 16) + 'px';
-                tip.style.top  = (e.clientY + 16) + 'px';
-            }});
-            row.addEventListener('mouseleave', () => {{ tip.style.display = 'none'; }});
-            row.addEventListener('click', () => {{
-                const url = new URL(window.parent.location.href);
-                url.searchParams.set('enc_detail', row.dataset.encId);
-                url.searchParams.set('enc_type', row.dataset.encType);
-                window.parent.history.pushState({{}}, '', url.toString());
-                window.parent.dispatchEvent(new PopStateEvent('popstate'));
-            }});
-        }});
-    </script>
-    </body></html>"""
-    st.components.v1.html(html, height=height, scrolling=True)
 
 
 
@@ -1037,26 +820,25 @@ def show_encounter_detail(enc_id: str, enc_type: str, runs: list[dict]) -> None:
 
     st.caption(f"Across **{runs_found}** run(s) that included this encounter.")
 
-    rows = []
-    for card_id, s in card_stats.items():
-        total = s["total"]
-        wins  = s["wins"]
-        rows.append({
-            "Card":      card_id_to_name(card_id),
-            "In Deck":   total,
-            "Wins":      wins,
-            "Losses":    total - wins,
-            "Win Rate":  f"{wins / total:.1%}",
-            "_rate":     wins / total,
-        })
-
-    rows.sort(key=lambda x: x["_rate"], reverse=True)
-
-    st.dataframe(
-        _pd.DataFrame([{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]),
-        use_container_width=True,
-        hide_index=True,
-    )
+    _CARD_COLS = [
+        {"key": "card",     "label": "Card"},
+        {"key": "in_deck",  "label": "In Deck"},
+        {"key": "wins",     "label": "Wins"},
+        {"key": "losses",   "label": "Losses"},
+        {"key": "win_rate", "label": "Win Rate", "sort_key": "_wr"},
+    ]
+    table_rows = [
+        {
+            "card":     card_id_to_name(card_id),
+            "in_deck":  s["total"],
+            "wins":     s["wins"],
+            "losses":   s["total"] - s["wins"],
+            "win_rate": f"{s['wins'] / s['total']:.1%}",
+            "_wr":      s["wins"] / s["total"],
+        }
+        for card_id, s in card_stats.items()
+    ]
+    render_table(table_rows, _CARD_COLS, default_sort="win_rate", key="card_table")
 
 
 def show_general(runs: list[dict]) -> None:
