@@ -911,18 +911,19 @@ def main() -> None:
         st.info("👈 Upload your .run files using the sidebar to get started.")
         return
 
+    # ── Global character filter (applies everywhere, including detail page) ──
+    characters = sorted({get_character(r) for r in runs})
+    char_options = ["All"] + characters
+    selected_char = st.selectbox("🧙 Character", char_options, index=0)
+    if selected_char != "All":
+        runs = [r for r in runs if get_character(r) == selected_char]
+
     # ── Encounter detail page ────────────────────────────────────────
     enc_detail = st.query_params.get("enc_detail")
     enc_type   = st.query_params.get("enc_type", "elite")
     if enc_detail:
         show_encounter_detail(enc_detail, enc_type, runs)
         return
-
-    characters = sorted({get_character(r) for r in runs})
-    char_options = ["All"] + characters
-    selected_char = st.selectbox("🧙 Character", char_options, index=0)
-    if selected_char != "All":
-        runs = [r for r in runs if get_character(r) == selected_char]
 
     st.divider()
     st.header("2. Choose a metric")
