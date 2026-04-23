@@ -936,7 +936,9 @@ def main() -> None:
     # ── Global character filter (applies everywhere, including detail page) ──
     characters = sorted({get_character(r) for r in runs})
     char_options = ["All"] + characters
-    selected_char = st.selectbox("🧙 Character", char_options, index=0)
+    if st.session_state.get("char_filter") not in char_options:
+        st.session_state["char_filter"] = "All"
+    selected_char = st.selectbox("🧙 Character", char_options, key="char_filter")
     if selected_char != "All":
         runs = [r for r in runs if get_character(r) == selected_char]
 
@@ -949,7 +951,7 @@ def main() -> None:
 
     st.divider()
     st.header("2. Choose a metric")
-    metric_label = st.selectbox("What would you like to calculate?", list(METRICS.keys()))
+    metric_label = st.selectbox("What would you like to calculate?", list(METRICS.keys()), key="metric_label")
 
     st.divider()
     st.header("3. Results")
