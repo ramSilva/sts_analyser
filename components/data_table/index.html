@@ -1,12 +1,13 @@
 <!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #0e1117; color: #fafafa; font-family: "Source Sans Pro", sans-serif; font-size: 14px; overflow-x: hidden; }
+body { background: #0e1117; color: #fafafa; font-family: "Source Sans Pro", sans-serif; font-size: 14px; }
+.table-wrap { overflow-x: auto; width: 100%; }
 .controls { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .controls label { color: #a0a0b0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
 select { background: #262730; color: #fafafa; border: 1px solid #3d3d4d; border-radius: 6px; padding: 4px 8px; font-size: 13px; cursor: pointer; }
 #row-count { color: #a0a0b0; font-size: 12px; margin-left: 4px; }
-table { width: 100%; border-collapse: collapse; }
+table { width: max-content; min-width: 100%; border-collapse: collapse; }
 thead tr { background: #262730; }
 th { padding: 10px 14px; text-align: left; font-weight: 600; color: #a0a0b0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #3d3d4d; cursor: pointer; user-select: none; white-space: nowrap; }
 th:hover { color: #fff; }
@@ -37,7 +38,7 @@ tr.rr.clickable { cursor: pointer; }
   </select>
   <span id="row-count"></span>
 </div>
-<table><thead><tr id="hdr"></tr></thead><tbody id="tbd"></tbody></table>
+<div class="table-wrap"><table><thead><tr id="hdr"></tr></thead><tbody id="tbd"></tbody></table></div>
 <div class="pagination" id="pgn">
   <button class="pg-btn" id="pprev">&#x2190; Prev</button>
   <span class="pg-info" id="pinfo"></span>
