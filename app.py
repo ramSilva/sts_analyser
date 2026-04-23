@@ -785,6 +785,31 @@ def show_encounter_detail(enc_id: str, enc_type: str, runs: list[dict]) -> None:
     kind = enc_type.capitalize()
     st.header(f"{kind}: {name}")
     st.divider()
+
+    # ── General stats ────────────────────────────────────────────────────────
+    times_fought = 0
+    wins_count   = 0
+    counted_runs: set = set()
+    for run in runs:
+        run_id = id(run)
+        for act in run.get("map_point_history", []):
+            for point in act:
+                rooms = point.get("rooms", [])
+                if (rooms[0].get("model_id", "") if rooms else "") == enc_id:
+                    times_fought += 1
+                    if run_id not in counted_runs:
+                        counted_runs.add(run_id)
+                        if is_win(run):
+                            wins_count += 1
+
+    total_runs_with_enc = len(counted_runs)
+    win_rate = wins_count / total_runs_with_enc if total_runs_with_enc else 0
+
+    col1, col2 = st.columns(2)
+    col1.metric("Times Fought", times_fought)
+    col2.metric("Win Rate", f"{win_rate:.1%}")
+
+    st.divider()
     st.subheader("Card win rate at this encounter")
     st.caption(
         "Win rate of each card that was in the deck when this encounter was reached. "
