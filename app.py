@@ -351,7 +351,7 @@ def get_elite_encounter_stats(runs: list[dict]) -> list[dict]:
         result.append({
             "enc_id":    enc_id,
             "name":      encounter_id_to_name(enc_id),
-            "count":     total_runs,
+            "count":     s["count"],
             "avg_dmg":   sum(s["dmg"]) / len(s["dmg"]) if s["dmg"] else 0,
             "avg_turns": sum(s["turns"]) / len(s["turns"]) if s["turns"] else 0,
             "win_rate":  s["wins"] / total_runs if total_runs else 0,
@@ -402,7 +402,7 @@ def get_boss_encounter_stats(runs: list[dict]) -> list[dict]:
         result.append({
             "enc_id":     enc_id,
             "name":       encounter_id_to_name(enc_id),
-            "count":      total_runs,
+            "count":      s["count"],
             "avg_dmg":    sum(s["dmg"]) / len(s["dmg"]) if s["dmg"] else 0,
             "avg_turns":  sum(s["turns"]) / len(s["turns"]) if s["turns"] else 0,
             "win_rate":   s["wins"] / total_runs if total_runs else 0,
@@ -722,33 +722,31 @@ def card_id_to_name(card_id: str) -> str:
     return f"{name} +" if upgraded else name
 
 
-def get_deck_at_encounter(run: dict, target_enc_id: str) -> tuple[list[str], bool]:
+def get_decks_at_encounter(run: dict, target_enc_id: str) -> list[list[str]]:
     """
-    Reconstruct the deck at the moment a specific encounter is reached.
+    Return one deck snapshot per occurrence of target_enc_id in the run.
 
-    Walks map_point_history in chronological order. The player_stats for each
-    room describe what happened AFTER that room (rewards, gains, removals), so
-    we accumulate those changes only for rooms that come BEFORE the target
-    encounter.  When we reach the target we stop — the Counter at that point
-    is the deck the player had going into the fight.
+    Walks map_point_history in order, accumulating cards_gained / cards_removed
+    after every room.  Each time target_enc_id is reached a snapshot of the
+    current deck is appended, then accumulation continues so that subsequent
+    encounters of the same enemy get the correct (later) deck state.
 
-    Card gains:    player_stats[0].cards_gained  — list of {"id": "CARD.X", ...}
-    Card removals: player_stats[0].cards_removed — list of {"id": "CARD.X", ...}
-    Starting deck: players[0].starting_deck      — list of {"id": "CARD.X", ...}
-                   (seeded at the beginning if the field is present)
+    Card gains:    player_stats[0].cards_gained
+    Card removals: player_stats[0].cards_removed
+    Starting deck: players[0].starting_deck  (seeded if present)
     """
     from collections import Counter
 
     player = run.get("players", [{}])[0]
     deck: Counter = Counter()
 
-    # Seed with starting deck if the run records one
     for card in player.get("starting_deck", []):
         cid = (card.get("id") if isinstance(card, dict) else card) or ""
         if cid:
             deck[cid] += 1
 
-    found = False
+    snapshots: list[list[str]] = []
+
     for act in run.get("map_point_history", []):
         for point in act:
             rooms   = point.get("rooms", [])
@@ -757,25 +755,21 @@ def get_deck_at_encounter(run: dict, target_enc_id: str) -> tuple[list[str], boo
             ps      = ps_list[0] if ps_list else {}
 
             if enc_id == target_enc_id:
-                found = True
-                break
+                snapshots.append(list(deck.elements()))
 
-            # Cards added to deck as reward/result of this room
+            # Always accumulate after every room (including the target encounter),
+            # so the next encounter of the same enemy sees an updated deck.
             for card in ps.get("cards_gained", []):
                 cid = (card.get("id") if isinstance(card, dict) else card) or ""
                 if cid:
                     deck[cid] += 1
 
-            # Cards removed/purged/transformed after this room
             for card in ps.get("cards_removed", []):
                 cid = (card.get("id") if isinstance(card, dict) else card) or ""
                 if cid and deck[cid] > 0:
                     deck[cid] -= 1
 
-        if found:
-            break
-
-    return list(deck.elements()), found
+    return snapshots
 
 def show_encounter_detail(enc_id: str, enc_type: str, runs: list[dict]) -> None:
     """Card win-rate breakdown for a single encounter."""
@@ -798,27 +792,28 @@ def show_encounter_detail(enc_id: str, enc_type: str, runs: list[dict]) -> None:
     )
 
     card_stats: dict[str, dict] = defaultdict(lambda: {"wins": 0, "total": 0})
-    runs_found = 0
+    encounters_found = 0
 
     for run in runs:
-        deck, found = get_deck_at_encounter(run, enc_id)
-        if not found:
+        decks = get_decks_at_encounter(run, enc_id)
+        if not decks:
             continue
-        runs_found += 1
         won = is_win(run)
-        for card_id in set(deck):          # count each card once per run
-            card_stats[card_id]["total"] += 1
-            if won:
-                card_stats[card_id]["wins"] += 1
+        for deck in decks:
+            encounters_found += 1
+            for card_id in set(deck):          # count each card once per encounter
+                card_stats[card_id]["total"] += 1
+                if won:
+                    card_stats[card_id]["wins"] += 1
 
     if not card_stats:
         st.warning(
-            f"No card data found across {runs_found} run(s) with this encounter. "
+            f"No card data found across {encounters_found} encounter(s). "
             "The run files may not contain card gain/removal tracking."
         )
         return
 
-    st.caption(f"Across **{runs_found}** run(s) that included this encounter.")
+    st.caption(f"Across **{encounters_found}** encounter(s).")
 
     _CARD_COLS = [
         {"key": "card",     "label": "Card"},
