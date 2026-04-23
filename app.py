@@ -929,17 +929,155 @@ def show_boss_analysis(runs: list[dict]) -> None:
 
 
 
+
+def card_id_to_name(card_id: str) -> str:
+    """Convert a card ID like 'CARD.STRIKE_RED' or 'STRIKE_RED_UPGRADED' to a readable name."""
+    name = card_id.replace("CARD.", "")
+    upgraded = name.endswith("_UPGRADED")
+    name = name.replace("_UPGRADED", "")
+    name = name.replace("_", " ").title()
+    return f"{name} +" if upgraded else name
+
+
+def get_deck_at_encounter(run: dict, target_enc_id: str) -> tuple[list[str], bool]:
+    """
+    Walk map_point_history in order, accumulating card adds/removes at each
+    room BEFORE the target encounter. Returns (card_id_list, found).
+
+    Tries:
+      1. Full deck snapshot in player_stats[0].cards / .deck at the encounter point.
+      2. Incremental tracking via player_stats[0].card_choices / .cards_removed and
+         rooms[*].card_choices at every preceding point.
+      3. Starting deck from players[0].starting_deck if present.
+    """
+    from collections import Counter
+
+    player  = run.get("players", [{}])[0]
+    deck: Counter = Counter()
+
+    # Seed with a starting deck if the run file records one
+    for card in player.get("starting_deck", []):
+        cid = (card.get("id") if isinstance(card, dict) else card) or ""
+        if cid:
+            deck[cid] += 1
+
+    found = False
+    for act in run.get("map_point_history", []):
+        for point in act:
+            rooms   = point.get("rooms", [])
+            enc_id  = rooms[0].get("model_id", "") if rooms else ""
+            ps_list = point.get("player_stats", [])
+            ps      = ps_list[0] if ps_list else {}
+
+            if enc_id == target_enc_id:
+                # Prefer a full deck snapshot recorded at this point
+                snapshot = ps.get("cards") or ps.get("deck") or []
+                if snapshot:
+                    deck = Counter()
+                    for card in snapshot:
+                        cid = (card.get("id") if isinstance(card, dict) else card) or ""
+                        if cid:
+                            deck[cid] += 1
+                found = True
+                break
+
+            # ── Accumulate card changes BEFORE this encounter ────────────
+            # Card choices (rewards, events)
+            for cc in ps.get("card_choices", []):
+                if isinstance(cc, dict):
+                    if cc.get("was_picked"):
+                        cid = cc.get("choice") or cc.get("card_id") or cc.get("id") or ""
+                        if cid:
+                            deck[cid] += 1
+                elif isinstance(cc, str):
+                    deck[cc] += 1
+
+            # Card choices stored on rooms instead of player_stats
+            for room in rooms:
+                for cc in room.get("card_choices", []):
+                    if isinstance(cc, dict) and cc.get("was_picked"):
+                        cid = cc.get("choice") or cc.get("card_id") or cc.get("id") or ""
+                        if cid:
+                            deck[cid] += 1
+
+            # Cards removed (shop / purge events)
+            for card in ps.get("cards_removed", []):
+                cid = (card.get("id") if isinstance(card, dict) else card) or ""
+                if cid in deck:
+                    deck[cid] = max(0, deck[cid] - 1)
+                    if deck[cid] == 0:
+                        del deck[cid]
+
+        if found:
+            break
+
+    return list(deck.elements()), found
+
 def show_encounter_detail(enc_id: str, enc_type: str, runs: list[dict]) -> None:
-    """Detailed breakdown for a single elite/boss encounter. Placeholder for now."""
+    """Card win-rate breakdown for a single encounter."""
+    from collections import defaultdict
+    import pandas as _pd
+
     name = encounter_id_to_name(enc_id)
-    if st.button("← Back"):
+    if st.button("\u2190 Back"):
         del st.query_params["enc_detail"]
         del st.query_params["enc_type"]
         st.rerun()
 
     kind = enc_type.capitalize()
     st.header(f"{kind}: {name}")
-    st.info("Detailed breakdown coming soon.")
+    st.divider()
+    st.subheader("Card win rate at this encounter")
+    st.caption(
+        "Win rate of each card that was in the deck when this encounter was reached. "
+        "Cards picked up or removed before the fight are accounted for."
+    )
+
+    card_stats: dict[str, dict] = defaultdict(lambda: {"wins": 0, "total": 0})
+    runs_found = 0
+
+    for run in runs:
+        deck, found = get_deck_at_encounter(run, enc_id)
+        if not found:
+            continue
+        runs_found += 1
+        won = is_win(run)
+        for card_id in set(deck):          # count each card once per run
+            card_stats[card_id]["total"] += 1
+            if won:
+                card_stats[card_id]["wins"] += 1
+
+    if not card_stats:
+        st.warning(
+            f"No card data found across {runs_found} run(s) with this encounter. "
+            "The run files may not record card choices in a recognised field "
+            "(tried: player_stats.card_choices, player_stats.cards_removed, "
+            "rooms.card_choices, players.starting_deck)."
+        )
+        return
+
+    st.caption(f"Across **{runs_found}** run(s) that included this encounter.")
+
+    rows = []
+    for card_id, s in card_stats.items():
+        total = s["total"]
+        wins  = s["wins"]
+        rows.append({
+            "Card":      card_id_to_name(card_id),
+            "In Deck":   total,
+            "Wins":      wins,
+            "Losses":    total - wins,
+            "Win Rate":  f"{wins / total:.1%}",
+            "_rate":     wins / total,
+        })
+
+    rows.sort(key=lambda x: x["_rate"], reverse=True)
+
+    st.dataframe(
+        _pd.DataFrame([{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]),
+        use_container_width=True,
+        hide_index=True,
+    )
 
 
 def show_general(runs: list[dict]) -> None:
